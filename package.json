@@ -1,0 +1,13 @@
+{
+  "name": "dynamic-pricing-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo Run apps separately for now",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f"
+  },
+  "packageManager": "pnpm@11.10.0"
+}

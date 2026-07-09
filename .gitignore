@@ -8,3 +8,5 @@ __pycache__
 *.pyc
 .
 dock
+*.tsbuildinfo
+apps/web/dist

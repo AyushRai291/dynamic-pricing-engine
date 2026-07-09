@@ -7,6 +7,7 @@ import { requestLoggerMiddleware } from './middleware/requestLogger.middleware.j
 import authRoutes from './routes/auth.routes.js';
 import healthRoutes from './routes/health.routes.js';
 import productRoutes from './routes/product.routes.js';
+import scraperRoutes from './routes/scraper.routes.js';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(requestLoggerMiddleware);
 app.use('/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/scraper', scraperRoutes);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);

@@ -19,14 +19,27 @@ async function getProductExists(productId) {
 
 async function fetchHtmlWithPuppeteer(url) {
   const browser = await puppeteer.launch({ headless: true });
+  let scrapeError;
 
   try {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    return page.content();
+    const html = await page.content();
+    return html;
+  } catch (error) {
+    scrapeError = error;
+    throw error;
   } finally {
-    await browser.close();
+    try {
+      await browser.close();
+    } catch (cleanupError) {
+      if (!scrapeError) {
+        throw cleanupError;
+      }
+
+      console.error(`[scraper] browser cleanup failed after scrape error: ${cleanupError.message}`);
+    }
   }
 }
 

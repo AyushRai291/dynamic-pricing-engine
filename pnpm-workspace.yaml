@@ -4,4 +4,5 @@ packages:
 allowBuilds:
   bcrypt: true
   esbuild: true
+  msgpackr-extract: false
   puppeteer: true

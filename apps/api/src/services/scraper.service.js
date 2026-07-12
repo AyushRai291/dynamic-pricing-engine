@@ -30,21 +30,16 @@ async function fetchHtmlWithPuppeteer(url) {
   }
 }
 
-export function getScraperStatus() {
-  return {
-    status: 'ok',
-    mode: 'manual',
-    queueEnabled: false,
-    cronEnabled: false,
-  };
-}
-
-export async function triggerScrape({ productId, competitorName, competitorUrl, mockHtml }) {
+export async function assertProductExists(productId) {
   const productExists = await getProductExists(productId);
 
   if (!productExists) {
     throw createError('Product not found', 404);
   }
+}
+
+export async function scrapeAndStoreCompetitorData({ productId, competitorName, competitorUrl, mockHtml }) {
+  await assertProductExists(productId);
 
   const html = mockHtml || await fetchHtmlWithPuppeteer(competitorUrl);
   const price = parsePriceFromHtml(html);
@@ -79,4 +74,25 @@ export async function triggerScrape({ productId, competitorName, competitorUrl, 
   );
 
   return result.rows[0];
+}
+
+export const triggerScrape = scrapeAndStoreCompetitorData;
+
+export async function getKnownScrapeTargets() {
+  const result = await query(
+    `SELECT DISTINCT ON (cd.product_id, cd.competitor_name)
+       cd.product_id AS "productId",
+       cd.competitor_name AS "competitorName",
+       cd.competitor_url AS "competitorUrl"
+     FROM competitor_data cd
+     JOIN products p ON p.id = cd.product_id
+     WHERE p.is_active = TRUE
+       AND cd.competitor_url IS NOT NULL
+       AND btrim(cd.competitor_url) <> ''
+       AND cd.competitor_url ~* '^https?://'
+     ORDER BY cd.product_id, cd.competitor_name, cd.scraped_at DESC
+     LIMIT 100`
+  );
+
+  return result.rows;
 }

@@ -53,3 +53,14 @@ class PricingFeatures(BaseModel):
 
 class FeatureBuildResponse(BaseModel):
     features: PricingFeatures
+
+
+PriceAction = Literal["decrease", "hold", "increase"]
+
+
+class PredictionResponse(BaseModel):
+    price_score: Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)]
+    action: PriceAction
+    model_version: str
+    model_source: Literal["synthetic_rule_based"]
+    features: PricingFeatures

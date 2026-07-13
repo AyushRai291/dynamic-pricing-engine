@@ -1,0 +1,41 @@
+{
+  "model_version": "bootstrap-xgb-v1",
+  "model_source": "synthetic_rule_based",
+  "training_data": "bootstrap synthetic rule-based training data",
+  "seed": 42,
+  "sample_count": 4500,
+  "feature_names": [
+    "price_gap_ratio",
+    "gross_margin_ratio",
+    "markdown_headroom_ratio",
+    "markup_headroom_ratio",
+    "price_position_ratio",
+    "inventory_count",
+    "competitor_count",
+    "available_competitor_count",
+    "competitor_available_ratio",
+    "competitor_price_spread_ratio",
+    "has_competitor_data"
+  ],
+  "action_thresholds": {
+    "decrease": "score < 40",
+    "hold": "40 <= score <= 60",
+    "increase": "score > 60"
+  },
+  "model_parameters": {
+    "objective": "reg:squarederror",
+    "n_estimators": 160,
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.9,
+    "colsample_bytree": 0.9,
+    "random_state": 42,
+    "n_jobs": 1
+  },
+  "synthetic_test_metrics": {
+    "mae": 0.5477204918861389,
+    "rmse": 0.752872291682941,
+    "r2": 0.9944092631340027
+  },
+  "warning": "Synthetic-only metrics show how well the model learns the bootstrap rule-based policy; they are not real-world business performance."
+}

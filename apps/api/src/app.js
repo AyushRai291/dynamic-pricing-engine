@@ -6,6 +6,7 @@ import { notFoundMiddleware } from './middleware/notFound.middleware.js';
 import { requestLoggerMiddleware } from './middleware/requestLogger.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import healthRoutes from './routes/health.routes.js';
+import pricingRoutes from './routes/pricing.routes.js';
 import productRoutes from './routes/product.routes.js';
 import scraperRoutes from './routes/scraper.routes.js';
 
@@ -18,6 +19,7 @@ app.use(requestLoggerMiddleware);
 app.use('/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/pricing', pricingRoutes);
 app.use('/api/scraper', scraperRoutes);
 
 app.use(notFoundMiddleware);

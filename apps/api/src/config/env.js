@@ -10,6 +10,32 @@ function requireEnv(name) {
   return value;
 }
 
+function parsePositiveInteger(value, name) {
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
+function parseHttpUrl(value, name) {
+  let parsed;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid HTTP or HTTPS URL.`);
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${name} must be a valid HTTP or HTTPS URL.`);
+  }
+
+  return parsed.toString().replace(/\/$/, '');
+}
+
 export const PORT = process.env.PORT || 5000;
 export const DATABASE_URL = process.env.DATABASE_URL;
 export const JWT_ACCESS_SECRET = requireEnv('JWT_ACCESS_SECRET');
@@ -21,3 +47,11 @@ export const QUEUE_REDIS_CONNECT_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_CON
 export const QUEUE_REDIS_COMMAND_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_COMMAND_TIMEOUT_MS || 5000);
 export const SCRAPER_CRON_ENABLED = process.env.SCRAPER_CRON_ENABLED === 'true';
 export const SCRAPER_CRON_EXPRESSION = process.env.SCRAPER_CRON_EXPRESSION || '0 */4 * * *';
+export const ML_SERVICE_URL = parseHttpUrl(
+  process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000',
+  'ML_SERVICE_URL'
+);
+export const ML_REQUEST_TIMEOUT_MS = parsePositiveInteger(
+  process.env.ML_REQUEST_TIMEOUT_MS || 5000,
+  'ML_REQUEST_TIMEOUT_MS'
+);

@@ -1,0 +1,81 @@
+{
+  "source_url": "https://zenodo.org/records/12636070/files/m5-forecasting-accuracy.zip?download=1",
+  "doi": "10.5281/zenodo.12636070",
+  "license": "CC BY 4.0",
+  "archive": {
+    "filename": "m5-forecasting-accuracy.zip",
+    "size_bytes": 48009163,
+    "md5": "86f57416a314197f40a17cc6fc60cbb4"
+  },
+  "raw_required_files": {
+    "calendar.csv": {
+      "size_bytes": 103469
+    },
+    "sell_prices.csv": {
+      "size_bytes": 203395785
+    },
+    "sales_train_evaluation.csv": {
+      "size_bytes": 121736518
+    }
+  },
+  "selection": {
+    "store_id": "CA_1",
+    "dept_id": "FOODS_1"
+  },
+  "total_processed_rows": 419256,
+  "unique_item_count": 216,
+  "minimum_date": "2011-01-29",
+  "maximum_date": "2016-05-22",
+  "chronological_splits": {
+    "train": {
+      "minimum_date": "2011-01-29",
+      "maximum_date": "2016-03-27",
+      "date_count": 1885,
+      "row_count": 407160
+    },
+    "validation": {
+      "minimum_date": "2016-03-28",
+      "maximum_date": "2016-04-24",
+      "date_count": 28,
+      "row_count": 6048
+    },
+    "test": {
+      "minimum_date": "2016-04-25",
+      "maximum_date": "2016-05-22",
+      "date_count": 28,
+      "row_count": 6048
+    }
+  },
+  "missing_sell_price": {
+    "count": 61292,
+    "percentage": 14.61923
+  },
+  "zero_sales": {
+    "count": 247720,
+    "percentage": 59.085618
+  },
+  "numeric_summaries": {
+    "units_sold": {
+      "count": 419256,
+      "mean": 1.3772873852729597,
+      "std": 3.0264045259782533,
+      "min": 0.0,
+      "25%": 0.0,
+      "50%": 0.0,
+      "75%": 2.0,
+      "max": 92.0
+    },
+    "sell_price": {
+      "count": 357964,
+      "mean": 3.2926647372361457,
+      "std": 1.9701548700137208,
+      "min": 0.97,
+      "25%": 1.97,
+      "50%": 2.68,
+      "75%": 4.68,
+      "max": 12.98
+    }
+  },
+  "duplicate_key_count": 0,
+  "real_model_training_status": "No real model has been trained yet."
+}

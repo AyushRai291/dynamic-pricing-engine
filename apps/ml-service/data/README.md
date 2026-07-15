@@ -15,11 +15,20 @@ From `apps/ml-service`, run:
 ```powershell
 .\.venv\Scripts\python.exe scripts\download_m5.py
 .\.venv\Scripts\python.exe scripts\prepare_m5_subset.py
+.\.venv\Scripts\python.exe scripts\build_m5_demand_features.py
 ```
 
 The preparation uses the final 28 dates as test, the preceding 28 as validation,
 and all earlier dates as training data so future observations never leak backward.
 Missing historical prices are deliberately retained rather than filled or dropped.
+
+The Day 12 feature dataset targets current-date `units_sold`. Demand lags and
+rolling values are computed per item/store from prior dates only; rolling windows
+start with `shift(1)` so the current target cannot leak into its own features.
+Rows without a current `sell_price` are excluded because price is essential model
+input, while zero-sales targets are retained as real demand outcomes. Existing
+chronological train/validation/test labels are preservedâ€”using a random split or
+calculating history after splitting would introduce leakage or discard context.
 
 This is real Walmart demand and price history; it is not Indian e-commerce
 competitor data and cannot validate that target market by itself.

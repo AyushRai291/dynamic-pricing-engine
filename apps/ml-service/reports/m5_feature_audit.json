@@ -1,0 +1,139 @@
+{
+  "source_dataset": "m5_ca1_foods1.csv.gz",
+  "output_dataset": "m5_ca1_foods1_features.csv.gz",
+  "target": "units_sold",
+  "feature_columns": [
+    "item_id",
+    "store_id",
+    "dept_id",
+    "cat_id",
+    "state_id",
+    "sell_price",
+    "event_name_1",
+    "event_type_1",
+    "sales_lag_1",
+    "sales_lag_7",
+    "sales_lag_28",
+    "sales_rolling_mean_7",
+    "sales_rolling_mean_28",
+    "sales_rolling_std_28",
+    "demand_trend_7_28",
+    "price_lag_7",
+    "price_change_ratio_7",
+    "historical_price_mean_28",
+    "price_vs_history_ratio",
+    "day_of_week",
+    "month",
+    "week_of_year",
+    "is_weekend",
+    "has_event",
+    "snap_active"
+  ],
+  "feature_definitions": {
+    "sales_lag_1": "units_sold from 1 prior row in the item/store series",
+    "sales_lag_7": "units_sold from 7 prior rows in the item/store series",
+    "sales_lag_28": "units_sold from 28 prior rows in the item/store series",
+    "sales_rolling_mean_7": "mean units_sold over the prior 7 rows after shift(1)",
+    "sales_rolling_mean_28": "mean units_sold over the prior 28 rows after shift(1)",
+    "sales_rolling_std_28": "sample standard deviation of units_sold over the prior 28 rows after shift(1)",
+    "demand_trend_7_28": "(sales_rolling_mean_7 - sales_rolling_mean_28) / (sales_rolling_mean_28 + 1)",
+    "price_lag_7": "sell_price from 7 prior rows in the item/store series",
+    "price_change_ratio_7": "(sell_price - price_lag_7) / price_lag_7",
+    "historical_price_mean_28": "mean available sell_price over the prior 28 rows after shift(1); missing prices remain missing and are not backfilled",
+    "price_vs_history_ratio": "sell_price / historical_price_mean_28",
+    "day_of_week": "date weekday number where Monday=0 and Sunday=6",
+    "month": "calendar month number from date",
+    "week_of_year": "ISO calendar week number from date",
+    "is_weekend": "1 when day_of_week is Saturday or Sunday, otherwise 0",
+    "has_event": "1 when event_name_1 is present, otherwise 0",
+    "snap_active": "current California SNAP indicator copied from snap_CA"
+  },
+  "input_row_count": 419256,
+  "final_row_count": 354954,
+  "pre_filter_counts": {
+    "missing_sell_price": 61292,
+    "missing_sell_price_and_positive_units_sold": 0,
+    "zero_units_sold": 247720,
+    "incomplete_28_day_demand_history": 6048
+  },
+  "removed_rows": {
+    "missing_current_sell_price": 61292,
+    "incomplete_28_day_demand_history": 6048,
+    "overlap_between_reasons": 3038,
+    "total_unique_rows_removed": 64302,
+    "exclusive_breakdown": {
+      "missing_price_only": 58254,
+      "incomplete_history_only": 3010,
+      "both_reasons": 3038
+    }
+  },
+  "missing_price_positive_sales_count": 0,
+  "chronological_splits": {
+    "train": {
+      "minimum_date": "2011-02-26",
+      "maximum_date": "2016-03-27",
+      "date_count": 1857,
+      "row_count": 342858
+    },
+    "validation": {
+      "minimum_date": "2016-03-28",
+      "maximum_date": "2016-04-24",
+      "date_count": 28,
+      "row_count": 6048
+    },
+    "test": {
+      "minimum_date": "2016-04-25",
+      "maximum_date": "2016-05-22",
+      "date_count": 28,
+      "row_count": 6048
+    }
+  },
+  "target_summary": {
+    "mean": 1.6081351386376825,
+    "standard_deviation": 3.2112823241338018,
+    "minimum": 0.0,
+    "maximum": 92.0
+  },
+  "zero_target": {
+    "count": 185341,
+    "percentage": 52.215498
+  },
+  "duplicate_key_count": 0,
+  "null_count_by_feature": {
+    "item_id": 0,
+    "store_id": 0,
+    "dept_id": 0,
+    "cat_id": 0,
+    "state_id": 0,
+    "sell_price": 0,
+    "event_name_1": 0,
+    "event_type_1": 0,
+    "sales_lag_1": 0,
+    "sales_lag_7": 0,
+    "sales_lag_28": 0,
+    "sales_rolling_mean_7": 0,
+    "sales_rolling_mean_28": 0,
+    "sales_rolling_std_28": 0,
+    "demand_trend_7_28": 0,
+    "price_lag_7": 728,
+    "price_change_ratio_7": 728,
+    "historical_price_mean_28": 104,
+    "price_vs_history_ratio": 104,
+    "day_of_week": 0,
+    "month": 0,
+    "week_of_year": 0,
+    "is_weekend": 0,
+    "has_event": 0,
+    "snap_active": 0
+  },
+  "leakage_controls": [
+    "Rows are grouped by item_id and store_id and ordered by date.",
+    "All demand lags use shift and all rolling demand windows start with shift(1).",
+    "Rolling windows are trailing only and never centered.",
+    "Price lag and rolling price history use past rows only; prices are never backfilled.",
+    "Features are calculated over each full chronological series before eligibility filtering.",
+    "Existing train, validation, and test labels are preserved; no random split is used.",
+    "Current sell_price is allowed as known candidate-price context; units_sold is target only."
+  ],
+  "model_training_status": "No model was trained on Day 12."
+}

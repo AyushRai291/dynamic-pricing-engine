@@ -30,6 +30,7 @@ import JobStatusCard from '../components/JobStatusCard';
 import Layout from '../components/Layout';
 import ProductTable from '../components/ProductTable';
 import QueueStatusPanel from '../components/QueueStatusPanel';
+import SalesHistoryDialog from '../components/SalesHistoryDialog';
 import ScrapeDialog from '../components/ScrapeDialog';
 
 type DashboardPageProps = {
@@ -149,6 +150,7 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isScrapeDialogOpen, setIsScrapeDialogOpen] = useState(false);
+  const [selectedSalesProduct, setSelectedSalesProduct] = useState<Product | null>(null);
   const [currentJob, setCurrentJob] = useState<ScrapeJobSummary | null>(null);
   const [jobProduct, setJobProduct] = useState<Product | null>(null);
   const [latestCompetitor, setLatestCompetitor] = useState<CompetitorData | null>(null);
@@ -401,6 +403,7 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
           page={page}
           onPageChange={setPage}
           onScrape={handleOpenScrape}
+          onViewSales={setSelectedSalesProduct}
         />
       </div>
 
@@ -410,6 +413,14 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
         onClose={() => setIsScrapeDialogOpen(false)}
         onSubmit={handleSubmitScrape}
         onEnqueued={handleEnqueued}
+      />
+
+      <SalesHistoryDialog
+        product={selectedSalesProduct}
+        isOpen={Boolean(selectedSalesProduct)}
+        accessToken={accessToken}
+        onClose={() => setSelectedSalesProduct(null)}
+        onUnauthorized={onLogout}
       />
     </Layout>
   );

@@ -145,6 +145,41 @@ export type GetProductsParams = {
   category?: string;
 };
 
+export type ProductSalesHistoryRecord = {
+  saleDate: string;
+  unitsSold: number;
+  sellingPrice: string;
+  revenue: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProductSalesHistoryResponse = {
+  productId: string;
+  items: ProductSalesHistoryRecord[];
+};
+
+export type GetProductSalesHistoryParams = {
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
+export type BulkProductSalesRecord = {
+  saleDate: string;
+  unitsSold: number;
+  sellingPrice: number;
+};
+
+export type BulkProductSalesRequest = {
+  records: BulkProductSalesRecord[];
+};
+
+export type BulkProductSalesResponse = {
+  upsertedCount: number;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => null) as unknown;
 
@@ -261,4 +296,56 @@ export async function getProductCompetitors(
   );
 
   return parseResponse<ProductCompetitorsResponse>(response);
+}
+
+export async function getProductSalesHistory(
+  accessToken: string,
+  productId: string,
+  params: GetProductSalesHistoryParams = {},
+  signal?: AbortSignal
+): Promise<ProductSalesHistoryResponse> {
+  const query = new URLSearchParams();
+
+  if (params.from !== undefined) {
+    query.set('from', params.from);
+  }
+
+  if (params.to !== undefined) {
+    query.set('to', params.to);
+  }
+
+  if (params.limit !== undefined) {
+    query.set('limit', String(params.limit));
+  }
+
+  const queryString = query.toString();
+  const path = `/api/products/${encodeURIComponent(productId)}/sales${
+    queryString ? `?${queryString}` : ''
+  }`;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: authHeaders(accessToken),
+    signal,
+  });
+
+  return parseResponse<ProductSalesHistoryResponse>(response);
+}
+
+export async function bulkUpsertProductSales(
+  accessToken: string,
+  productId: string,
+  payload: BulkProductSalesRequest
+): Promise<BulkProductSalesResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/sales/bulk`,
+    {
+      method: 'POST',
+      headers: {
+        ...authHeaders(accessToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  return parseResponse<BulkProductSalesResponse>(response);
 }

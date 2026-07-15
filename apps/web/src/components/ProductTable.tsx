@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Search, TimerReset } from 'lucide-react';
+import { ChevronLeft, ChevronRight, History, Search, TimerReset } from 'lucide-react';
 
 import { Product, ProductsResponse } from '../api/client';
 
@@ -17,6 +17,7 @@ type ProductTableProps = {
   page: number;
   onPageChange: (page: number) => void;
   onScrape: (product: Product) => void;
+  onViewSales: (product: Product) => void;
 };
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
@@ -95,6 +96,7 @@ export default function ProductTable({
   page,
   onPageChange,
   onScrape,
+  onViewSales,
 }: ProductTableProps) {
   if (isLoading) {
     return <TableSkeleton />;
@@ -181,7 +183,7 @@ export default function ProductTable({
 
       {hasProducts ? (
         <div className="overflow-x-auto">
-          <table className="min-w-[1120px] divide-y divide-slate-200 text-sm">
+          <table className="min-w-[1240px] divide-y divide-slate-200 text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Product name</th>
@@ -192,7 +194,7 @@ export default function ProductTable({
                 <th className="px-5 py-3 text-right text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Gross margin</th>
                 <th className="px-5 py-3 text-right text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Inventory</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Status</th>
-                <th className="px-5 py-3 text-right text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Scrape action</th>
+                <th className="px-5 py-3 text-right text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -221,16 +223,27 @@ export default function ProductTable({
                     <StatusBadge active={product.is_active} />
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
-                    <button
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                      type="button"
-                      onClick={() => onScrape(product)}
-                      disabled={!queueAvailable}
-                      aria-label={`Scrape competitor for ${product.name}`}
-                    >
-                      <TimerReset className="h-4 w-4" />
-                      Scrape
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        type="button"
+                        onClick={() => onViewSales(product)}
+                        aria-label={`View sales history for ${product.name}`}
+                      >
+                        <History className="h-4 w-4" />
+                        Sales history
+                      </button>
+                      <button
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                        type="button"
+                        onClick={() => onScrape(product)}
+                        disabled={!queueAvailable}
+                        aria-label={`Scrape competitor for ${product.name}`}
+                      >
+                        <TimerReset className="h-4 w-4" />
+                        Scrape
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

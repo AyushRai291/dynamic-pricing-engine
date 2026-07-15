@@ -1,0 +1,303 @@
+{
+  "model_name": "M5 CA_1 FOODS_1 demand regressor",
+  "model_version": "m5-demand-xgb-v1",
+  "model_source": "real_m5_historical_data",
+  "training_dataset": "m5_ca1_foods1_features.csv.gz",
+  "split_summary": {
+    "train": {
+      "minimum_date": "2011-02-26",
+      "maximum_date": "2016-03-27",
+      "row_count": 342858
+    },
+    "validation": {
+      "minimum_date": "2016-03-28",
+      "maximum_date": "2016-04-24",
+      "row_count": 6048
+    },
+    "test": {
+      "minimum_date": "2016-04-25",
+      "maximum_date": "2016-05-22",
+      "row_count": 6048
+    }
+  },
+  "numeric_features": [
+    "sell_price",
+    "sales_lag_1",
+    "sales_lag_7",
+    "sales_lag_28",
+    "sales_rolling_mean_7",
+    "sales_rolling_mean_28",
+    "sales_rolling_std_28",
+    "demand_trend_7_28",
+    "price_lag_7",
+    "price_change_ratio_7",
+    "historical_price_mean_28",
+    "price_vs_history_ratio",
+    "day_of_week",
+    "month",
+    "week_of_year",
+    "is_weekend",
+    "has_event",
+    "snap_active"
+  ],
+  "categorical_features": [
+    "item_id",
+    "store_id",
+    "dept_id",
+    "cat_id",
+    "state_id",
+    "event_name_1",
+    "event_type_1"
+  ],
+  "excluded_columns": [
+    "units_sold",
+    "date",
+    "d",
+    "split"
+  ],
+  "preprocessing_policy": {
+    "fit_scope": "train rows only",
+    "numeric": "passthrough with NaN preserved for XGBoost",
+    "categorical": "OneHotEncoder(handle_unknown='ignore') fit on train only"
+  },
+  "missing_value_policy": "No price or history values are filled; numeric NaN is passed to XGBoost native missing-value handling.",
+  "xgboost_parameters": {
+    "objective": "count:poisson",
+    "tree_method": "hist",
+    "n_estimators": 500,
+    "learning_rate": 0.05,
+    "max_depth": 6,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "random_state": 42,
+    "n_jobs": 1,
+    "eval_metric": "mae",
+    "early_stopping_rounds": 40,
+    "verbosity": 0
+  },
+  "best_iteration_zero_based": 257,
+  "evaluated_tree_count": 258,
+  "validation_metrics": {
+    "mae": 1.070498667070987,
+    "rmse": 1.8185499172167638,
+    "r2": 0.4407989656733251,
+    "wape": 0.8075808829294412,
+    "mean_bias": 0.12106852177666037,
+    "actual_mean": 1.3255621693121693,
+    "predicted_mean": 1.4466306910888296,
+    "prediction_minimum": 0.021157480776309967,
+    "prediction_maximum": 18.32188606262207,
+    "actual_zero_percentage": 51.98412698412699,
+    "mae_actual_zero": 0.747862422473269,
+    "mae_actual_positive": 1.4197990641147975
+  },
+  "untouched_test_metrics": {
+    "mae": 1.2598223005690632,
+    "rmse": 2.211710111920328,
+    "r2": 0.3269786894899003,
+    "wape": 0.7947642926715025,
+    "mean_bias": -0.033414938607531544,
+    "actual_mean": 1.5851521164021165,
+    "predicted_mean": 1.5517371777945848,
+    "prediction_minimum": 0.023640118539333344,
+    "prediction_maximum": 17.12201690673828,
+    "actual_zero_percentage": 44.84126984126984,
+    "mae_actual_zero": 0.94621919618664,
+    "mae_actual_positive": 1.514765831469882
+  },
+  "baseline_metrics": {
+    "validation": {
+      "zero_demand": {
+        "mae": 1.3255621693121693,
+        "rmse": 2.7696806589173693,
+        "r2": -0.29711030509321823,
+        "wape": 1.0,
+        "mean_bias": -1.3255621693121693,
+        "actual_mean": 1.3255621693121693,
+        "predicted_mean": 0.0,
+        "prediction_minimum": 0.0,
+        "prediction_maximum": 0.0,
+        "actual_zero_percentage": 51.98412698412699,
+        "mae_actual_zero": 0.0,
+        "mae_actual_positive": 2.7606749311294765
+      },
+      "sales_lag_7": {
+        "mae": 1.4351851851851851,
+        "rmse": 2.7673215901063584,
+        "r2": -0.29490162497462014,
+        "wape": 1.0826992640638642,
+        "mean_bias": 0.10582010582010581,
+        "actual_mean": 1.3255621693121693,
+        "predicted_mean": 1.4313822751322751,
+        "prediction_minimum": 0.0,
+        "prediction_maximum": 51.0,
+        "actual_zero_percentage": 51.98412698412699,
+        "mae_actual_zero": 0.7337786259541985,
+        "mae_actual_positive": 2.194559228650138
+      },
+      "sales_rolling_mean_7": {
+        "mae": 1.1423847316704459,
+        "rmse": 2.028595780889248,
+        "r2": 0.3041613481590758,
+        "wape": 0.8618115076890179,
+        "mean_bias": 0.07232615268329554,
+        "actual_mean": 1.3255621693121693,
+        "predicted_mean": 1.397888321995465,
+        "prediction_minimum": 0.0,
+        "prediction_maximum": 22.857142857142858,
+        "actual_zero_percentage": 51.98412698412699,
+        "mae_actual_zero": 0.7189658306070519,
+        "mae_actual_positive": 1.600796930342385
+      }
+    },
+    "test": {
+      "zero_demand": {
+        "mae": 1.5851521164021165,
+        "rmse": 3.1274461325767566,
+        "r2": -0.3457118758320463,
+        "wape": 1.0,
+        "mean_bias": -1.5851521164021165,
+        "actual_mean": 1.5851521164021165,
+        "predicted_mean": 0.0,
+        "prediction_minimum": 0.0,
+        "prediction_maximum": 0.0,
+        "actual_zero_percentage": 44.84126984126984,
+        "mae_actual_zero": 0.0,
+        "mae_actual_positive": 2.873800959232614
+      },
+      "sales_lag_7": {
+        "mae": 1.6456679894179893,
+        "rmse": 2.941925772122276,
+        "r2": -0.19079178666940178,
+        "wape": 1.0381766976113487,
+        "mean_bias": -0.028935185185185185,
+        "actual_mean": 1.5851521164021165,
+        "predicted_mean": 1.5562169312169312,
+        "prediction_minimum": 0.0,
+        "prediction_maximum": 28.0,
+        "actual_zero_percentage": 44.84126984126984,
+        "mae_actual_zero": 0.9509587020648967,
+        "mae_actual_positive": 2.210431654676259
+      },
+      "sales_rolling_mean_7": {
+        "mae": 1.3381755479969766,
+        "rmse": 2.360892680305776,
+        "r2": 0.23312443465540778,
+        "wape": 0.84419377430747,
+        "mean_bias": -0.012873204837490583,
+        "actual_mean": 1.5851521164021165,
+        "predicted_mean": 1.5722789115646258,
+        "prediction_minimum": 0.0,
+        "prediction_maximum": 14.428571428571429,
+        "actual_zero_percentage": 44.84126984126984,
+        "mae_actual_zero": 0.965497260851243,
+        "mae_actual_positive": 1.6411442274751629
+      }
+    }
+  },
+  "top_transformed_feature_importances": [
+    {
+      "feature": "numeric__sales_rolling_mean_7",
+      "importance": 0.2986157536506653
+    },
+    {
+      "feature": "numeric__sales_rolling_mean_28",
+      "importance": 0.2845355272293091
+    },
+    {
+      "feature": "numeric__sales_lag_1",
+      "importance": 0.023924803361296654
+    },
+    {
+      "feature": "numeric__sales_rolling_std_28",
+      "importance": 0.013281270861625671
+    },
+    {
+      "feature": "numeric__is_weekend",
+      "importance": 0.00958772748708725
+    },
+    {
+      "feature": "categorical__event_name_1_Christmas",
+      "importance": 0.008082980290055275
+    },
+    {
+      "feature": "numeric__demand_trend_7_28",
+      "importance": 0.0067262002266943455
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_021",
+      "importance": 0.006002042442560196
+    },
+    {
+      "feature": "numeric__day_of_week",
+      "importance": 0.005660830065608025
+    },
+    {
+      "feature": "numeric__historical_price_mean_28",
+      "importance": 0.00536707416176796
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_004",
+      "importance": 0.0047074975445866585
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_216",
+      "importance": 0.004577464424073696
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_045",
+      "importance": 0.004398016724735498
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_019",
+      "importance": 0.004238879773765802
+    },
+    {
+      "feature": "numeric__sell_price",
+      "importance": 0.004008009098470211
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_046",
+      "importance": 0.003961235750466585
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_042",
+      "importance": 0.0038205620367079973
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_200",
+      "importance": 0.003401256399229169
+    },
+    {
+      "feature": "numeric__price_lag_7",
+      "importance": 0.0033923950977623463
+    },
+    {
+      "feature": "categorical__item_id_FOODS_1_067",
+      "importance": 0.0033852444030344486
+    }
+  ],
+  "target_definition": "Current-date units_sold for an item/store using known current price and calendar context plus strictly prior demand and price history.",
+  "dataset_limitations": [
+    "The pilot contains only Walmart CA_1 / FOODS_1 historical observations.",
+    "It is not Indian e-commerce or competitor-market data.",
+    "Zero-inflated demand and missing historical prices remain in the features.",
+    "Validation covers 28 days and the untouched test covers the following 28 days."
+  ],
+  "causality_warning": "Observational price-demand relationship is not guaranteed causal.",
+  "day_10_distinction": "This real-data units_sold demand model is separate from the Day 10 synthetic 0-100 price-score model.",
+  "test_evaluation_policy": "The test split was transformed and evaluated only after model fitting and validation-based early stopping were complete.",
+  "package_versions": {
+    "python": "3.10.1",
+    "numpy": "2.2.6",
+    "pandas": "2.3.3",
+    "scikit_learn": "1.7.2",
+    "xgboost": "3.2.0",
+    "joblib": "1.5.3"
+  },
+  "artifacts": {
+    "model": "m5_demand_xgb.json",
+    "preprocessor": "m5_demand_preprocessor.joblib",
+    "metadata": "m5_demand_metadata.json"
+  }
+}

@@ -10,14 +10,22 @@ function requireEnv(name) {
   return value;
 }
 
-function parsePositiveInteger(value, name) {
+function parsePositiveInteger(value, name, { maximum = Number.MAX_SAFE_INTEGER } = {}) {
   const parsed = Number(value);
 
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer.`);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) {
+    throw new Error(`${name} must be an integer between 1 and ${maximum}.`);
   }
 
   return parsed;
+}
+
+function parseNonEmptyString(value, name) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${name} must be a non-empty string.`);
+  }
+
+  return value.trim();
 }
 
 function parseHttpUrl(value, name) {
@@ -55,4 +63,22 @@ export const ML_SERVICE_URL = parseHttpUrl(
 export const ML_REQUEST_TIMEOUT_MS = parsePositiveInteger(
   process.env.ML_REQUEST_TIMEOUT_MS || 5000,
   'ML_REQUEST_TIMEOUT_MS'
+);
+export const GEMINI_API_KEY = typeof process.env.GEMINI_API_KEY === 'string'
+  && process.env.GEMINI_API_KEY.trim()
+  ? process.env.GEMINI_API_KEY.trim()
+  : null;
+export const GEMINI_MODEL = parseNonEmptyString(
+  process.env.GEMINI_MODEL ?? 'gemini-2.5-flash-lite',
+  'GEMINI_MODEL'
+);
+export const GEMINI_REQUEST_TIMEOUT_MS = parsePositiveInteger(
+  process.env.GEMINI_REQUEST_TIMEOUT_MS ?? 10000,
+  'GEMINI_REQUEST_TIMEOUT_MS',
+  { maximum: 60000 }
+);
+export const GEMINI_MAX_OUTPUT_TOKENS = parsePositiveInteger(
+  process.env.GEMINI_MAX_OUTPUT_TOKENS ?? 600,
+  'GEMINI_MAX_OUTPUT_TOKENS',
+  { maximum: 8192 }
 );

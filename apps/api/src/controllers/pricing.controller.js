@@ -1,6 +1,7 @@
 import { getMlHealth } from '../services/ml.service.js';
 import {
   createPendingPriceSuggestion,
+  generatePriceSuggestionRationale,
   getPriceSuggestionById,
   listPriceSuggestions,
   scoreProductPricing,
@@ -115,6 +116,19 @@ export function createGetSuggestionHandler({ getFn = getPriceSuggestionById } = 
   });
 }
 
+export function createGenerateSuggestionRationaleHandler({
+  generateFn = generatePriceSuggestionRationale,
+} = {}) {
+  return asyncHandler(async (req, res) => {
+    const suggestionId = validatePricingUuid(req.params.id, 'suggestion');
+    validateCreateSuggestionBody(req.body);
+    const result = await generateFn(suggestionId);
+
+    res.status(result.generated ? 201 : 200).json(result);
+  });
+}
+
 export const createProductSuggestion = createProductSuggestionHandler();
 export const listSuggestions = createListSuggestionsHandler();
 export const getSuggestion = createGetSuggestionHandler();
+export const generateSuggestionRationale = createGenerateSuggestionRationaleHandler();

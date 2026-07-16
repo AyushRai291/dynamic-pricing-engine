@@ -7,6 +7,7 @@ process.env.JWT_ACCESS_SECRET ||= 'test-access-secret';
 process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
 
 const {
+  createGenerateSuggestionRationaleHandler,
   createGetSuggestionHandler,
   createListSuggestionsHandler,
   createProductSuggestionHandler,
@@ -131,6 +132,60 @@ test('create and read handlers pass validated input and use endpoint response co
   });
 });
 
+test('rationale handler validates input and returns generated or existing contracts', async () => {
+  const rationale = { schemaVersion: 'pricing-rationale-v1' };
+  const calls = [];
+  const generatedHandler = createGenerateSuggestionRationaleHandler({
+    generateFn: async (id) => {
+      calls.push(id);
+      return { generated: true, suggestionId: id, rationale };
+    },
+  });
+  const generatedResponse = await invokeHandler(generatedHandler, {
+    params: { id: SUGGESTION_ID },
+    body: {},
+  });
+
+  assert.deepEqual(calls, [SUGGESTION_ID]);
+  assert.deepEqual(generatedResponse, {
+    statusCode: 201,
+    body: {
+      generated: true,
+      suggestionId: SUGGESTION_ID,
+      rationale,
+    },
+  });
+
+  const existingHandler = createGenerateSuggestionRationaleHandler({
+    generateFn: async (id) => ({ generated: false, suggestionId: id, rationale }),
+  });
+  const existingResponse = await invokeHandler(existingHandler, {
+    params: { id: SUGGESTION_ID },
+    body: undefined,
+  });
+
+  assert.deepEqual(existingResponse, {
+    statusCode: 200,
+    body: {
+      generated: false,
+      suggestionId: SUGGESTION_ID,
+      rationale,
+    },
+  });
+
+  await assert.rejects(
+    invokeHandler(generatedHandler, { params: { id: 'bad' }, body: {} }),
+    (error) => error.statusCode === 400 && /Invalid suggestion id/.test(error.message)
+  );
+  await assert.rejects(
+    invokeHandler(generatedHandler, {
+      params: { id: SUGGESTION_ID },
+      body: { regenerate: true },
+    }),
+    (error) => error.statusCode === 400 && /must not contain fields/.test(error.message)
+  );
+});
+
 test('suggestion endpoints require JWT authentication', async (t) => {
   const app = express();
   app.use(express.json());
@@ -153,6 +208,11 @@ test('suggestion endpoints require JWT authentication', async (t) => {
     }),
     fetch(`http://127.0.0.1:${port}/api/pricing/suggestions?status=pending&limit=10`),
     fetch(`http://127.0.0.1:${port}/api/pricing/suggestions/${SUGGESTION_ID}`),
+    fetch(`http://127.0.0.1:${port}/api/pricing/suggestions/${SUGGESTION_ID}/rationale`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
   ]);
 
   for (const response of responses) {

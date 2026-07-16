@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import {
   createProductSuggestion,
+  generateSuggestionRationale,
   getPricingStatus,
   getSuggestion,
   listSuggestions,
@@ -17,6 +18,7 @@ router.get('/status', getPricingStatus);
 router.post('/score/:productId', scoreProduct);
 router.post('/products/:id/suggestions', createProductSuggestion);
 router.get('/suggestions', listSuggestions);
+router.post('/suggestions/:id/rationale', generateSuggestionRationale);
 router.get('/suggestions/:id', getSuggestion);
 
 export default router;

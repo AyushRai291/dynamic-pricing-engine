@@ -3,6 +3,10 @@ import {
   calculateGuardedCandidate,
   calculatePercentageChange,
 } from '../utils/priceSuggestion.js';
+import {
+  PRICING_RATIONALE_LIMITATION,
+  generateGeminiPricingRationale,
+} from './geminiRationale.service.js';
 import { requestPricingScore } from './ml.service.js';
 
 const SYNTHETIC_MODEL_LIMITATION = (
@@ -26,8 +30,25 @@ const SUGGESTION_SELECT_COLUMNS = `
   ps.price_score,
   ps.status,
   ps.feature_vector,
+  ps.ai_rationale,
   ps.created_at
 `;
+
+const PRICE_FEATURE_NAMES = [
+  'price_gap_ratio',
+  'gross_margin_ratio',
+  'markdown_headroom_ratio',
+  'markup_headroom_ratio',
+  'price_position_ratio',
+  'inventory_count',
+  'competitor_count',
+  'available_competitor_count',
+  'competitor_available_ratio',
+  'competitor_price_spread_ratio',
+  'has_competitor_data',
+];
+const VALID_ACTIONS = new Set(['decrease', 'hold', 'increase']);
+const VALID_GUARDRAILS = new Set(['min_price', 'max_price', 'cost_price']);
 
 function createError(message, statusCode) {
   const error = new Error(message);
@@ -43,6 +64,35 @@ function parseFiniteNumber(value, fieldName, { minimum = 0, integer = false } = 
   }
 
   return parsed;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseStoredRationale(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  let rationale = value;
+
+  if (typeof value === 'string') {
+    try {
+      rationale = JSON.parse(value);
+    } catch {
+      throw new Error('Invalid AI rationale in stored pricing data');
+    }
+  }
+
+  if (!isPlainObject(rationale)) {
+    throw new Error('Invalid AI rationale in stored pricing data');
+  }
+
+  return {
+    ...rationale,
+    limitation: PRICING_RATIONALE_LIMITATION,
+  };
 }
 
 function mapProductPricing(row) {
@@ -140,6 +190,107 @@ function mapSuggestion(row, product = null) {
       : [],
     created_at: row.created_at,
     limitation: metadata.limitation || EXPERIMENTAL_SUGGESTION_LIMITATION,
+    aiRationale: parseStoredRationale(row.ai_rationale),
+  };
+}
+
+function buildRationaleFacts(row) {
+  const suggestion = mapSuggestion(row);
+  const metadata = isPlainObject(row.feature_vector) ? row.feature_vector : {};
+  const action = metadata.action;
+  const modelVersion = metadata.model_version;
+  const modelSource = metadata.model_source;
+
+  if (!VALID_ACTIONS.has(action)) {
+    throw new Error('Invalid action in stored pricing data');
+  }
+
+  if (typeof modelVersion !== 'string' || !modelVersion.trim()) {
+    throw new Error('Invalid model_version in stored pricing data');
+  }
+
+  if (typeof modelSource !== 'string' || !modelSource.trim()) {
+    throw new Error('Invalid model_source in stored pricing data');
+  }
+
+  if (typeof row.product_name !== 'string' || !row.product_name.trim()) {
+    throw new Error('Invalid product name in stored pricing data');
+  }
+
+  if (typeof row.sku !== 'string' || !row.sku.trim()) {
+    throw new Error('Invalid product SKU in stored pricing data');
+  }
+
+  const featureVector = {};
+  const storedFeatures = isPlainObject(metadata.features) ? metadata.features : {};
+
+  for (const name of PRICE_FEATURE_NAMES) {
+    if (storedFeatures[name] !== undefined) {
+      featureVector[name] = parseFiniteNumber(
+        storedFeatures[name],
+        `feature_vector features.${name}`,
+        { minimum: Number.NEGATIVE_INFINITY }
+      );
+    }
+  }
+
+  const competitorSnapshot = isPlainObject(metadata.competitor_snapshot)
+    ? metadata.competitor_snapshot
+    : {};
+  const competitorCount = parseFiniteNumber(
+    competitorSnapshot.count ?? 0,
+    'competitor_snapshot count',
+    { integer: true }
+  );
+  const availableCompetitorCount = parseFiniteNumber(
+    competitorSnapshot.available_count ?? 0,
+    'competitor_snapshot available_count',
+    { integer: true }
+  );
+
+  if (availableCompetitorCount > competitorCount) {
+    throw new Error('Invalid competitor snapshot in stored pricing data');
+  }
+
+  const averagePrice = competitorSnapshot.average_price === null
+    || competitorSnapshot.average_price === undefined
+    ? null
+    : parseFiniteNumber(
+      competitorSnapshot.average_price,
+      'competitor_snapshot average_price',
+      { minimum: Number.MIN_VALUE }
+    );
+  const appliedGuardrails = suggestion.applied_guardrails;
+
+  if (
+    !appliedGuardrails.every(
+      (guardrail) => typeof guardrail === 'string' && VALID_GUARDRAILS.has(guardrail)
+    )
+  ) {
+    throw new Error('Invalid applied guardrails in stored pricing data');
+  }
+
+  return {
+    product: {
+      name: row.product_name,
+      sku: row.sku,
+    },
+    currentPrice: suggestion.current_price,
+    suggestedPrice: suggestion.suggested_price,
+    percentageChange: suggestion.percentage_change,
+    priceScore: parseFiniteNumber(suggestion.price_score, 'suggestion price_score'),
+    action,
+    modelVersion: modelVersion.trim(),
+    modelSource: modelSource.trim(),
+    featureVector,
+    competitorSnapshot: {
+      count: competitorCount,
+      availableCount: availableCompetitorCount,
+      averagePrice,
+    },
+    rawCandidate: parseFiniteNumber(metadata.raw_candidate, 'raw_candidate'),
+    appliedGuardrails: [...appliedGuardrails],
+    existingLimitation: suggestion.limitation,
   };
 }
 
@@ -329,6 +480,7 @@ export async function createPendingPriceSuggestion(
          price_score,
          status,
          feature_vector,
+         ai_rationale,
          created_at`,
       [
         productId,
@@ -390,4 +542,89 @@ export async function getPriceSuggestionById(id, { queryFn = query } = {}) {
   }
 
   return mapSuggestion(result.rows[0]);
+}
+
+export async function generatePriceSuggestionRationale(
+  id,
+  {
+    queryFn = query,
+    generateRationaleFn = generateGeminiPricingRationale,
+  } = {}
+) {
+  const snapshotResult = await queryFn(
+    `SELECT ${SUGGESTION_SELECT_COLUMNS}
+     FROM price_suggestions ps
+     JOIN products p ON p.id = ps.product_id
+     WHERE ps.id = $1`,
+    [id]
+  );
+  const row = snapshotResult.rows[0];
+
+  if (!row) {
+    throw createError('Price suggestion not found', 404);
+  }
+
+  if (row.status !== 'pending') {
+    throw createError('Price suggestion is no longer pending', 409);
+  }
+
+  const existingRationale = parseStoredRationale(row.ai_rationale);
+
+  if (existingRationale) {
+    return {
+      generated: false,
+      suggestionId: id,
+      rationale: existingRationale,
+    };
+  }
+
+  const rationale = await generateRationaleFn(buildRationaleFacts(row));
+  const serializedRationale = JSON.stringify(rationale);
+  const updateResult = await queryFn(
+    `UPDATE price_suggestions
+     SET ai_rationale = $2
+     WHERE id = $1
+       AND status = 'pending'
+       AND ai_rationale IS NULL
+     RETURNING ai_rationale`,
+    [id, serializedRationale]
+  );
+
+  if (updateResult.rows[0]) {
+    return {
+      generated: true,
+      suggestionId: id,
+      rationale: parseStoredRationale(
+        updateResult.rows[0].ai_rationale ?? serializedRationale
+      ),
+    };
+  }
+
+  const currentResult = await queryFn(
+    `SELECT status, ai_rationale
+     FROM price_suggestions
+     WHERE id = $1`,
+    [id]
+  );
+  const current = currentResult.rows[0];
+
+  if (!current) {
+    throw createError('Price suggestion not found', 404);
+  }
+
+  if (current.status !== 'pending') {
+    throw createError('Price suggestion is no longer pending', 409);
+  }
+
+  const concurrentRationale = parseStoredRationale(current.ai_rationale);
+
+  if (concurrentRationale) {
+    return {
+      generated: false,
+      suggestionId: id,
+      rationale: concurrentRationale,
+    };
+  }
+
+  throw createError('Price suggestion rationale could not be saved', 409);
 }

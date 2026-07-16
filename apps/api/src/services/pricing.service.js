@@ -198,14 +198,19 @@ async function loadActiveProductPricingForUpdate(productId, queryFn) {
 
 async function loadLatestCompetitorSnapshot(productId, queryFn) {
   const result = await queryFn(
-    `SELECT DISTINCT ON (competitor_name)
-       competitor_name,
-       price,
-       is_available,
-       scraped_at
-     FROM competitor_data
-     WHERE product_id = $1
-     ORDER BY competitor_name, scraped_at DESC, created_at DESC, id DESC`,
+    `SELECT DISTINCT ON (ct.id)
+       cd.competitor_name,
+       cd.price,
+       cd.is_available,
+       cd.scraped_at
+     FROM competitor_targets ct
+     JOIN competitor_data cd
+       ON cd.product_id = ct.product_id
+      AND cd.competitor_name = ct.competitor_name
+      AND cd.competitor_url = ct.competitor_url
+     WHERE ct.product_id = $1
+       AND ct.is_active = TRUE
+     ORDER BY ct.id, cd.scraped_at DESC, cd.created_at DESC, cd.id DESC`,
     [productId]
   );
 

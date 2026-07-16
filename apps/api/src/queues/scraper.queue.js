@@ -72,18 +72,39 @@ export async function checkScraperQueueAvailability() {
   }
 }
 
-export async function enqueueScrapeJob(payload) {
+export async function enqueueScrapeJob(payload, { jobId, skipIfExists = false } = {}) {
   const queue = getQueue();
 
   try {
-    const job = await withQueueTimeout(queue.add(SCRAPE_COMPETITOR_JOB_NAME, payload));
-    const state = await withQueueTimeout(job.getState()).catch(() => 'queued');
+    if (jobId && skipIfExists) {
+      const existingJob = await withQueueTimeout(queue.getJob(jobId));
 
-    return {
+      if (existingJob) {
+        const state = await withQueueTimeout(existingJob.getState()).catch(() => 'queued');
+
+        return {
+          id: existingJob.id,
+          name: existingJob.name,
+          state,
+          duplicate: true,
+        };
+      }
+    }
+
+    const options = jobId ? { jobId } : undefined;
+    const job = await withQueueTimeout(queue.add(SCRAPE_COMPETITOR_JOB_NAME, payload, options));
+    const state = await withQueueTimeout(job.getState()).catch(() => 'queued');
+    const result = {
       id: job.id,
       name: job.name,
       state,
     };
+
+    if (skipIfExists) {
+      result.duplicate = false;
+    }
+
+    return result;
   } catch (error) {
     throw mapQueueError(error);
   }

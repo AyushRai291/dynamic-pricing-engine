@@ -47,6 +47,7 @@ export const QUEUE_REDIS_CONNECT_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_CON
 export const QUEUE_REDIS_COMMAND_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_COMMAND_TIMEOUT_MS || 5000);
 export const SCRAPER_CRON_ENABLED = process.env.SCRAPER_CRON_ENABLED === 'true';
 export const SCRAPER_CRON_EXPRESSION = process.env.SCRAPER_CRON_EXPRESSION || '0 */4 * * *';
+export const SCRAPER_ALLOW_PRIVATE_URLS = process.env.SCRAPER_ALLOW_PRIVATE_URLS === 'true';
 export const ML_SERVICE_URL = parseHttpUrl(
   process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000',
   'ML_SERVICE_URL'

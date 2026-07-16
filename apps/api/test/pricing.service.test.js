@@ -31,7 +31,7 @@ const mlResponse = {
   features: { has_competitor_data: 1 },
 };
 
-test('pricing orchestration maps decimals and requests only the latest competitor snapshot', async () => {
+test('pricing orchestration maps decimals and requests only latest active configured-target rows', async () => {
   const calls = [];
   const queryFn = async (sql, params) => {
     calls.push({ sql, params });
@@ -65,9 +65,15 @@ test('pricing orchestration maps decimals and requests only the latest competito
   const result = await scoreProductPricing(PRODUCT_ID, { queryFn, requestPricingScoreFn });
 
   assert.equal(calls.length, 2);
-  assert.match(calls[1].sql, /SELECT DISTINCT ON \(competitor_name\)/);
-  assert.match(calls[1].sql, /WHERE product_id = \$1/);
-  assert.match(calls[1].sql, /ORDER BY competitor_name, scraped_at DESC/);
+  assert.match(calls[1].sql, /SELECT DISTINCT ON \(ct\.id\)/);
+  assert.match(calls[1].sql, /FROM competitor_targets ct/);
+  assert.match(calls[1].sql, /JOIN competitor_data cd/);
+  assert.match(calls[1].sql, /cd\.product_id = ct\.product_id/);
+  assert.match(calls[1].sql, /cd\.competitor_name = ct\.competitor_name/);
+  assert.match(calls[1].sql, /cd\.competitor_url = ct\.competitor_url/);
+  assert.match(calls[1].sql, /WHERE ct\.product_id = \$1/);
+  assert.match(calls[1].sql, /ct\.is_active = TRUE/);
+  assert.match(calls[1].sql, /ORDER BY ct\.id, cd\.scraped_at DESC/);
   assert.deepEqual(calls[1].params, [PRODUCT_ID]);
   assert.deepEqual(result.product, {
     id: PRODUCT_ID,

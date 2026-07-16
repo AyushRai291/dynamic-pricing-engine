@@ -4,9 +4,12 @@ import {
   getScraperQueueStats,
 } from '../queues/scraper.queue.js';
 import { getScraperSchedulerStatus } from '../schedulers/scraper.scheduler.js';
+import { SCRAPER_ALLOW_PRIVATE_URLS } from '../config/env.js';
+import { getActiveCompetitorTarget } from '../services/competitorTarget.service.js';
 import { assertProductExists } from '../services/scraper.service.js';
 import { getScraperWorkerStatus } from '../workers/scraper.worker.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { validateCompetitorUrl } from '../utils/competitorUrl.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -38,33 +41,17 @@ function parseOptionalMockHtml(body) {
   return body.mockHtml;
 }
 
-function validateProductId(productId) {
-  if (!UUID_REGEX.test(productId)) {
-    throw createError('Invalid productId', 400);
+export function validateScraperUuid(id, fieldName) {
+  if (typeof id !== 'string' || !UUID_REGEX.test(id)) {
+    throw createError(`Invalid ${fieldName}`, 400);
   }
+
+  return id;
 }
 
 function validateJobId(jobId) {
   if (typeof jobId !== 'string' || !jobId.trim()) {
     throw createError('Invalid jobId', 400);
-  }
-}
-
-function validateCompetitorUrl(competitorUrl, hasMockHtml) {
-  let url;
-
-  try {
-    url = new URL(competitorUrl);
-  } catch {
-    if (hasMockHtml) {
-      return;
-    }
-
-    throw createError('competitorUrl must be a valid HTTP or HTTPS URL', 400);
-  }
-
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw createError('competitorUrl must be an HTTP or HTTPS URL', 400);
   }
 }
 
@@ -90,26 +77,54 @@ export const getScrapeJobStatus = asyncHandler(async (req, res) => {
   res.status(200).json({ job });
 });
 
-export const triggerScrape = asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const productId = parseRequiredString(body, 'productId');
-  const competitorName = parseRequiredString(body, 'competitorName');
-  const competitorUrl = parseRequiredString(body, 'competitorUrl');
-  const mockHtml = parseOptionalMockHtml(body);
+export function createTriggerScrapeHandler({
+  enqueueFn = enqueueScrapeJob,
+  getActiveTargetFn = getActiveCompetitorTarget,
+  assertProductExistsFn = assertProductExists,
+  allowPrivateUrls = SCRAPER_ALLOW_PRIVATE_URLS,
+} = {}) {
+  return asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const mockHtml = parseOptionalMockHtml(body);
+    let payload;
 
-  validateProductId(productId);
-  validateCompetitorUrl(competitorUrl, Boolean(mockHtml));
-  await assertProductExists(productId);
+    if (body.targetId !== undefined) {
+      const targetId = parseRequiredString(body, 'targetId');
 
-  const job = await enqueueScrapeJob({
-    productId,
-    competitorName,
-    competitorUrl,
-    mockHtml,
+      validateScraperUuid(targetId, 'targetId');
+      const target = await getActiveTargetFn(targetId);
+
+      validateCompetitorUrl(target.competitorUrl, {
+        allowPrivateUrls: allowPrivateUrls || Boolean(mockHtml),
+        allowInvalidForMockHtml: Boolean(mockHtml),
+      });
+      payload = {
+        productId: target.productId,
+        competitorName: target.competitorName,
+        competitorUrl: target.competitorUrl,
+        mockHtml,
+      };
+    } else {
+      const productId = parseRequiredString(body, 'productId');
+      const competitorName = parseRequiredString(body, 'competitorName');
+      const competitorUrl = parseRequiredString(body, 'competitorUrl');
+
+      validateScraperUuid(productId, 'productId');
+      validateCompetitorUrl(competitorUrl, {
+        allowPrivateUrls: allowPrivateUrls || Boolean(mockHtml),
+        allowInvalidForMockHtml: Boolean(mockHtml),
+      });
+      await assertProductExistsFn(productId);
+      payload = { productId, competitorName, competitorUrl, mockHtml };
+    }
+
+    const job = await enqueueFn(payload);
+
+    res.status(202).json({
+      message: 'Scrape queued',
+      job,
+    });
   });
+}
 
-  res.status(202).json({
-    message: 'Scrape queued',
-    job,
-  });
-});
+export const triggerScrape = createTriggerScrapeHandler();

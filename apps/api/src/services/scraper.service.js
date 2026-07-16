@@ -4,6 +4,7 @@ import puppeteer from 'puppeteer';
 
 import { query } from '../config/db.js';
 import { parsePriceFromHtml } from '../utils/priceParser.js';
+import { validateCompetitorUrl } from '../utils/competitorUrl.js';
 
 function createError(message, statusCode) {
   const error = new Error(message);
@@ -11,8 +12,8 @@ function createError(message, statusCode) {
   return error;
 }
 
-async function getProductExists(productId) {
-  const result = await query('SELECT id FROM products WHERE id = $1', [productId]);
+async function getProductExists(productId, queryFn) {
+  const result = await queryFn('SELECT id FROM products WHERE id = $1', [productId]);
 
   return result.rowCount > 0;
 }
@@ -43,18 +44,25 @@ async function fetchHtmlWithPuppeteer(url) {
   }
 }
 
-export async function assertProductExists(productId) {
-  const productExists = await getProductExists(productId);
+export async function assertProductExists(productId, { queryFn = query } = {}) {
+  const productExists = await getProductExists(productId, queryFn);
 
   if (!productExists) {
     throw createError('Product not found', 404);
   }
 }
 
-export async function scrapeAndStoreCompetitorData({ productId, competitorName, competitorUrl, mockHtml }) {
-  await assertProductExists(productId);
+export async function scrapeAndStoreCompetitorData(
+  { productId, competitorName, competitorUrl, mockHtml },
+  { queryFn = query, fetchHtmlFn = fetchHtmlWithPuppeteer } = {}
+) {
+  await assertProductExists(productId, { queryFn });
 
-  const html = mockHtml || await fetchHtmlWithPuppeteer(competitorUrl);
+  if (!mockHtml) {
+    validateCompetitorUrl(competitorUrl);
+  }
+
+  const html = mockHtml || await fetchHtmlFn(competitorUrl);
   const price = parsePriceFromHtml(html);
 
   if (price === null) {
@@ -62,7 +70,7 @@ export async function scrapeAndStoreCompetitorData({ productId, competitorName, 
   }
 
   const rawHtmlHash = crypto.createHash('md5').update(html).digest('hex');
-  const result = await query(
+  const result = await queryFn(
     `INSERT INTO competitor_data (
       product_id,
       competitor_name,
@@ -91,20 +99,18 @@ export async function scrapeAndStoreCompetitorData({ productId, competitorName, 
 
 export const triggerScrape = scrapeAndStoreCompetitorData;
 
-export async function getKnownScrapeTargets() {
-  const result = await query(
-    `SELECT DISTINCT ON (cd.product_id, cd.competitor_name)
-       cd.product_id AS "productId",
-       cd.competitor_name AS "competitorName",
-       cd.competitor_url AS "competitorUrl"
-     FROM competitor_data cd
-     JOIN products p ON p.id = cd.product_id
-     WHERE p.is_active = TRUE
-       AND cd.competitor_url IS NOT NULL
-       AND btrim(cd.competitor_url) <> ''
-       AND cd.competitor_url ~* '^https?://'
-     ORDER BY cd.product_id, cd.competitor_name, cd.scraped_at DESC
-     LIMIT 100`
+export async function getActiveConfiguredScrapeTargets({ queryFn = query } = {}) {
+  const result = await queryFn(
+    `SELECT
+       ct.id AS "targetId",
+       ct.product_id AS "productId",
+       ct.competitor_name AS "competitorName",
+       ct.competitor_url AS "competitorUrl"
+     FROM competitor_targets ct
+     JOIN products p ON p.id = ct.product_id
+     WHERE ct.is_active = TRUE
+       AND p.is_active = TRUE
+     ORDER BY ct.product_id, ct.id`
   );
 
   return result.rows;

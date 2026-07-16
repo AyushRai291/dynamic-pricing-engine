@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+process.env.JWT_ACCESS_SECRET ||= 'test-access-secret';
+process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
+
+const {
+  createCompetitorTarget,
+  getActiveCompetitorTarget,
+  listCompetitorTargets,
+  updateCompetitorTarget,
+} = await import('../src/services/competitorTarget.service.js');
+
+const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
+const TARGET_ID = '22222222-2222-4222-8222-222222222222';
+const targetRow = {
+  id: TARGET_ID,
+  productId: PRODUCT_ID,
+  competitorName: 'Store',
+  competitorUrl: 'https://shop.example/p',
+  isActive: true,
+  createdAt: '2026-07-17T00:00:00.000Z',
+  updatedAt: '2026-07-17T00:00:00.000Z',
+};
+
+test('target creation and listing use parameterized SQL and active products', async () => {
+  const createCalls = [];
+  const created = await createCompetitorTarget(PRODUCT_ID, {
+    competitorName: 'Store',
+    competitorUrl: 'https://shop.example/p',
+  }, { queryFn: async (sql, params) => {
+    createCalls.push({ sql, params });
+    return createCalls.length === 1 ? { rows: [{ id: PRODUCT_ID }] } : { rows: [targetRow] };
+  } });
+
+  assert.deepEqual(created, targetRow);
+  assert.match(createCalls[0].sql, /id = \$1[\s\S]*is_active = TRUE/);
+  assert.deepEqual(createCalls[0].params, [PRODUCT_ID]);
+  assert.match(createCalls[1].sql, /VALUES \(\$1, \$2, \$3\)/);
+  assert.doesNotMatch(createCalls[1].sql, /shop\.example|Store/);
+  assert.deepEqual(createCalls[1].params, [PRODUCT_ID, 'Store', 'https://shop.example/p']);
+  assert.match(createCalls[1].sql, /AS "competitorName"/);
+
+  const listCalls = [];
+  const items = await listCompetitorTargets(PRODUCT_ID, {
+    queryFn: async (sql, params) => {
+      listCalls.push({ sql, params });
+      return listCalls.length === 1 ? { rows: [{ id: PRODUCT_ID }] } : { rows: [targetRow] };
+    },
+  });
+  assert.deepEqual(items, [targetRow]);
+  assert.match(listCalls[1].sql, /FROM competitor_targets/);
+  assert.match(listCalls[1].sql, /product_id = \$1/);
+  assert.deepEqual(listCalls[1].params, [PRODUCT_ID]);
+});
+
+test('target update/deactivation is parameterized and scoped to product and target', async () => {
+  const calls = [];
+  const updated = await updateCompetitorTarget(PRODUCT_ID, TARGET_ID, {
+    competitorUrl: 'https://shop.example/new',
+    isActive: false,
+  }, { queryFn: async (sql, params) => {
+    calls.push({ sql, params });
+    return calls.length === 1
+      ? { rows: [{ id: PRODUCT_ID }] }
+      : { rows: [{ ...targetRow, competitorUrl: params[0], isActive: params[1] }] };
+  } });
+
+  assert.equal(updated.isActive, false);
+  assert.match(calls[1].sql, /competitor_url = \$1/);
+  assert.match(calls[1].sql, /is_active = \$2/);
+  assert.match(calls[1].sql, /product_id = \$3[\s\S]*id = \$4/);
+  assert.deepEqual(calls[1].params, [
+    'https://shop.example/new',
+    false,
+    PRODUCT_ID,
+    TARGET_ID,
+  ]);
+});
+
+test('duplicates return clear 409 responses', async () => {
+  let callCount = 0;
+  await assert.rejects(
+    createCompetitorTarget(PRODUCT_ID, {
+      competitorName: 'Store',
+      competitorUrl: 'https://shop.example/p',
+    }, { queryFn: async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return { rows: [{ id: PRODUCT_ID }] };
+      }
+
+      const error = new Error('duplicate');
+      error.code = '23505';
+      throw error;
+    } }),
+    (error) => error.statusCode === 409 && /already exists/.test(error.message)
+  );
+});
+
+test('missing products and targets return 404', async () => {
+  await assert.rejects(
+    listCompetitorTargets(PRODUCT_ID, { queryFn: async () => ({ rows: [] }) }),
+    (error) => error.statusCode === 404 && error.message === 'Active product not found'
+  );
+
+  let callCount = 0;
+  await assert.rejects(
+    updateCompetitorTarget(PRODUCT_ID, TARGET_ID, { isActive: false }, {
+      queryFn: async () => {
+        callCount += 1;
+        return callCount === 1 ? { rows: [{ id: PRODUCT_ID }] } : { rows: [] };
+      },
+    }),
+    (error) => error.statusCode === 404 && error.message === 'Competitor target not found'
+  );
+});
+
+test('active target lookup joins active products and rejects inactive or missing targets', async () => {
+  const calls = [];
+  const active = await getActiveCompetitorTarget(TARGET_ID, {
+    queryFn: async (sql, params) => {
+      calls.push({ sql, params });
+      return { rows: [targetRow] };
+    },
+  });
+  assert.deepEqual(active, targetRow);
+  assert.match(calls[0].sql, /JOIN products p ON p\.id = ct\.product_id/);
+  assert.match(calls[0].sql, /ct\.id = \$1/);
+  assert.match(calls[0].sql, /ct\.is_active = TRUE/);
+  assert.match(calls[0].sql, /p\.is_active = TRUE/);
+  assert.deepEqual(calls[0].params, [TARGET_ID]);
+
+  await assert.rejects(
+    getActiveCompetitorTarget(TARGET_ID, { queryFn: async () => ({ rows: [] }) }),
+    (error) => error.statusCode === 404 && error.message === 'Active competitor target not found'
+  );
+});

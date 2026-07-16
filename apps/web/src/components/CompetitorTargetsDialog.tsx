@@ -262,6 +262,46 @@ export default function CompetitorTargetsDialog({
     };
   }, [formMode, isOpen, onClose]);
 
+  const handleJobTerminal = useCallback(async (job: ScrapeJobStatus, targetId: string) => {
+    if (activeJobIdRef.current !== job.id) {
+      return;
+    }
+
+    setIsJobTerminal(true);
+    await onRefreshQueue();
+
+    if (job.state === 'failed') {
+      setNotice({
+        type: 'error',
+        message: `Job ${job.id} failed after ${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}.`,
+      });
+      return;
+    }
+
+    const refreshedTargets = await loadTargets({ showSkeleton: false });
+    const refreshedTarget = refreshedTargets?.find((target) => target.id === targetId);
+    const latest = refreshedTarget?.latestScrape;
+    const priceMatches = latest && (
+      job.result?.price === undefined || Number(latest.price) === job.result.price
+    );
+    const timestampMatches = latest && (
+      job.result?.scrapedAt === undefined
+      || new Date(latest.scrapedAt).getTime() === new Date(job.result.scrapedAt).getTime()
+    );
+
+    if (latest && priceMatches && timestampMatches) {
+      setNotice({
+        type: 'success',
+        message: `Job ${job.id} completed. Latest trusted price: ${formatInr(latest.price)}.`,
+      });
+    } else {
+      setNotice({
+        type: 'error',
+        message: `Job ${job.id} completed, but the refreshed trusted target row could not yet be confirmed.`,
+      });
+    }
+  }, [loadTargets, onRefreshQueue]);
+
   if (!isOpen || !product) {
     return null;
   }
@@ -415,46 +455,6 @@ export default function CompetitorTargetsDialog({
       setTriggeringTargetId(null);
     }
   }
-
-  const handleJobTerminal = useCallback(async (job: ScrapeJobStatus, targetId: string) => {
-    if (activeJobIdRef.current !== job.id) {
-      return;
-    }
-
-    setIsJobTerminal(true);
-    await onRefreshQueue();
-
-    if (job.state === 'failed') {
-      setNotice({
-        type: 'error',
-        message: `Job ${job.id} failed after ${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}.`,
-      });
-      return;
-    }
-
-    const refreshedTargets = await loadTargets({ showSkeleton: false });
-    const refreshedTarget = refreshedTargets?.find((target) => target.id === targetId);
-    const latest = refreshedTarget?.latestScrape;
-    const priceMatches = latest && (
-      job.result?.price === undefined || Number(latest.price) === job.result.price
-    );
-    const timestampMatches = latest && (
-      job.result?.scrapedAt === undefined
-      || new Date(latest.scrapedAt).getTime() === new Date(job.result.scrapedAt).getTime()
-    );
-
-    if (latest && priceMatches && timestampMatches) {
-      setNotice({
-        type: 'success',
-        message: `Job ${job.id} completed. Latest trusted price: ${formatInr(latest.price)}.`,
-      });
-    } else {
-      setNotice({
-        type: 'error',
-        message: `Job ${job.id} completed, but the refreshed trusted target row could not yet be confirmed.`,
-      });
-    }
-  }, [loadTargets, onRefreshQueue]);
 
   const activeJobTarget = currentJob
     ? targets.find((target) => target.id === currentJob.targetId)

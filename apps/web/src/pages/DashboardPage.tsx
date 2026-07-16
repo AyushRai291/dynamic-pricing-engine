@@ -7,40 +7,27 @@ import {
   PackageSearch,
   ServerCog,
   TimerReset,
-  X,
   XCircle,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
-  CompetitorData,
   Product,
   ProductsResponse,
-  ScrapeJobStatus,
-  ScrapeJobSummary,
   ScraperStatusResponse,
-  TriggerScrapeResponse,
-  getProductCompetitors,
   getProducts,
   getScraperStatus,
-  triggerScrape,
 } from '../api/client';
-import JobStatusCard from '../components/JobStatusCard';
+import CompetitorTargetsDialog from '../components/CompetitorTargetsDialog';
 import Layout from '../components/Layout';
 import ProductTable from '../components/ProductTable';
 import QueueStatusPanel from '../components/QueueStatusPanel';
 import SalesHistoryDialog from '../components/SalesHistoryDialog';
-import ScrapeDialog from '../components/ScrapeDialog';
 
 type DashboardPageProps = {
   accessToken: string;
   onLogout: () => void;
-};
-
-type Notification = {
-  type: 'success' | 'error';
-  message: string;
 };
 
 const PRODUCTS_PER_PAGE = 10;
@@ -94,44 +81,6 @@ function StatCard({
   );
 }
 
-function NotificationBanner({
-  notification,
-  onDismiss,
-}: {
-  notification: Notification | null;
-  onDismiss: () => void;
-}) {
-  if (!notification) {
-    return null;
-  }
-
-  const isSuccess = notification.type === 'success';
-
-  return (
-    <div
-      className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-sm ${
-        isSuccess
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-          : 'border-red-200 bg-red-50 text-red-800'
-      }`}
-      role={notification.type === 'error' ? 'alert' : 'status'}
-    >
-      <div className="flex gap-2">
-        {isSuccess ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
-        <span>{notification.message}</span>
-      </div>
-      <button
-        className="rounded-md p-1 transition hover:bg-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        type="button"
-        aria-label="Dismiss notification"
-        onClick={onDismiss}
-      >
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
 export default function DashboardPage({ accessToken, onLogout }: DashboardPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<ProductsResponse['pagination'] | null>(null);
@@ -148,14 +97,8 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
   const [isQueueRefreshing, setIsQueueRefreshing] = useState(false);
   const [lastQueueRefresh, setLastQueueRefresh] = useState<Date | null>(null);
 
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [isScrapeDialogOpen, setIsScrapeDialogOpen] = useState(false);
+  const [selectedCompetitorProduct, setSelectedCompetitorProduct] = useState<Product | null>(null);
   const [selectedSalesProduct, setSelectedSalesProduct] = useState<Product | null>(null);
-  const [currentJob, setCurrentJob] = useState<ScrapeJobSummary | null>(null);
-  const [jobProduct, setJobProduct] = useState<Product | null>(null);
-  const [latestCompetitor, setLatestCompetitor] = useState<CompetitorData | null>(null);
-  const [notification, setNotification] = useState<Notification | null>(null);
-  const activeJobIdRef = useRef<string | null>(null);
 
   const handleApiError = useCallback((error: unknown, fallbackMessage: string) => {
     if (error instanceof ApiError && error.statusCode === 401) {
@@ -220,6 +163,11 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
     }
   }, [accessToken, handleApiError]);
 
+  const refreshQueueSilently = useCallback(
+    () => loadQueueStatus({ silent: true }),
+    [loadQueueStatus]
+  );
+
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
@@ -266,70 +214,6 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
     setPage(1);
   }
 
-  function handleOpenScrape(product: Product) {
-    setSelectedProduct(product);
-    setIsScrapeDialogOpen(true);
-  }
-
-  async function handleSubmitScrape(payload: {
-    productId: string;
-    competitorName: string;
-    competitorUrl: string;
-  }) {
-    try {
-      return await triggerScrape(accessToken, payload);
-    } catch (error) {
-      const message = handleApiError(error, 'Unable to enqueue scrape job');
-      throw new Error(message);
-    }
-  }
-
-  function handleEnqueued(response: TriggerScrapeResponse, product: Product) {
-    setCurrentJob(response.job);
-    setJobProduct(product);
-    setLatestCompetitor(null);
-    activeJobIdRef.current = response.job.id;
-    setNotification({
-      type: 'success',
-      message: `Scrape job ${response.job.id} queued for ${product.name}.`,
-    });
-    loadQueueStatus({ silent: true });
-  }
-
-  const handleJobTerminal = useCallback(async (job: ScrapeJobStatus, product: Product) => {
-    if (activeJobIdRef.current !== job.id) {
-      return;
-    }
-
-    await loadQueueStatus({ silent: true });
-
-    if (job.state === 'completed') {
-      setNotification({
-        type: 'success',
-        message: `Scrape job ${job.id} completed.`,
-      });
-
-      try {
-        const competitors = await getProductCompetitors(accessToken, product.id);
-        const newest = competitors.items[0] || null;
-
-        if (activeJobIdRef.current === job.id) {
-          setLatestCompetitor(newest);
-        }
-      } catch (error) {
-        const message = handleApiError(error, 'Unable to load latest competitor price');
-        setNotification({ type: 'error', message });
-      }
-    }
-
-    if (job.state === 'failed') {
-      setNotification({
-        type: 'error',
-        message: job.failureReason || `Scrape job ${job.id} failed.`,
-      });
-    }
-  }, [accessToken, handleApiError, loadQueueStatus]);
-
   const productTotal = pagination?.total ?? products.length;
   const queue = queueStatus?.queue;
 
@@ -360,8 +244,6 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
           </div>
         </section>
 
-        <NotificationBanner notification={notification} onDismiss={() => setNotification(null)} />
-
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" aria-label="Dashboard summary">
           <StatCard label="Products" value={productTotal} icon={PackageSearch} detail="From product API" tone="indigo" />
           <StatCard label="Waiting" value={queue?.waiting ?? '—'} icon={TimerReset} detail="Queue jobs" tone="slate" />
@@ -379,22 +261,12 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
           onRefresh={() => loadQueueStatus()}
         />
 
-        <JobStatusCard
-          accessToken={accessToken}
-          job={currentJob}
-          product={jobProduct}
-          latestCompetitor={latestCompetitor}
-          onTerminal={handleJobTerminal}
-          onUnauthorized={onLogout}
-        />
-
         <ProductTable
           products={filteredProducts}
           allLoadedCount={products.length}
           pagination={pagination}
           isLoading={isProductsLoading}
           error={productsError}
-          queueAvailable={queueAvailable}
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           categoryFilter={categoryFilter}
@@ -402,17 +274,20 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
           onCategoryChange={handleCategoryChange}
           page={page}
           onPageChange={setPage}
-          onScrape={handleOpenScrape}
+          onManageCompetitors={setSelectedCompetitorProduct}
           onViewSales={setSelectedSalesProduct}
         />
       </div>
 
-      <ScrapeDialog
-        product={selectedProduct}
-        isOpen={isScrapeDialogOpen}
-        onClose={() => setIsScrapeDialogOpen(false)}
-        onSubmit={handleSubmitScrape}
-        onEnqueued={handleEnqueued}
+      <CompetitorTargetsDialog
+        product={selectedCompetitorProduct}
+        isOpen={Boolean(selectedCompetitorProduct)}
+        accessToken={accessToken}
+        queueAvailable={queueAvailable}
+        isQueueLoading={isQueueLoading}
+        onClose={() => setSelectedCompetitorProduct(null)}
+        onUnauthorized={onLogout}
+        onRefreshQueue={refreshQueueSilently}
       />
 
       <SalesHistoryDialog

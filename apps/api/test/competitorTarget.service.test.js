@@ -21,6 +21,7 @@ const targetRow = {
   isActive: true,
   createdAt: '2026-07-17T00:00:00.000Z',
   updatedAt: '2026-07-17T00:00:00.000Z',
+  latestScrape: null,
 };
 
 test('target creation and listing use parameterized SQL and active products', async () => {
@@ -49,9 +50,52 @@ test('target creation and listing use parameterized SQL and active products', as
     },
   });
   assert.deepEqual(items, [targetRow]);
-  assert.match(listCalls[1].sql, /FROM competitor_targets/);
-  assert.match(listCalls[1].sql, /product_id = \$1/);
+  assert.match(listCalls[1].sql, /FROM competitor_targets ct/);
+  assert.match(listCalls[1].sql, /LEFT JOIN LATERAL/);
+  assert.match(listCalls[1].sql, /cd\.product_id = ct\.product_id/);
+  assert.match(listCalls[1].sql, /cd\.competitor_name = ct\.competitor_name/);
+  assert.match(listCalls[1].sql, /cd\.competitor_url = ct\.competitor_url/);
+  assert.match(listCalls[1].sql, /WHERE ct\.product_id = \$1/);
+  assert.match(listCalls[1].sql, /ORDER BY cd\.scraped_at DESC, cd\.created_at DESC, cd\.id DESC/);
+  assert.doesNotMatch(listCalls[1].sql, /WHERE ct\.is_active = TRUE/);
   assert.deepEqual(listCalls[1].params, [PRODUCT_ID]);
+});
+
+test('target list maps the latest exact configured scrape without changing decimals or timestamps', async () => {
+  const scrapedTarget = {
+    ...targetRow,
+    latestScrape: {
+      price: '12345.67',
+      isAvailable: true,
+      scrapedAt: '2026-07-18T09:10:11.123Z',
+    },
+  };
+  let callCount = 0;
+  const items = await listCompetitorTargets(PRODUCT_ID, {
+    queryFn: async () => {
+      callCount += 1;
+      return callCount === 1 ? { rows: [{ id: PRODUCT_ID }] } : { rows: [scrapedTarget] };
+    },
+  });
+
+  assert.deepEqual(items, [scrapedTarget]);
+  assert.equal(items[0].latestScrape.price, '12345.67');
+  assert.equal(items[0].latestScrape.scrapedAt, '2026-07-18T09:10:11.123Z');
+});
+
+test('never-scraped and inactive targets remain listable with latestScrape null', async () => {
+  const inactiveTarget = { ...targetRow, isActive: false };
+  let callCount = 0;
+  const items = await listCompetitorTargets(PRODUCT_ID, {
+    queryFn: async () => {
+      callCount += 1;
+      return callCount === 1 ? { rows: [{ id: PRODUCT_ID }] } : { rows: [inactiveTarget] };
+    },
+  });
+
+  assert.deepEqual(items, [inactiveTarget]);
+  assert.equal(items[0].isActive, false);
+  assert.equal(items[0].latestScrape, null);
 });
 
 test('target update/deactivation is parameterized and scoped to product and target', async () => {

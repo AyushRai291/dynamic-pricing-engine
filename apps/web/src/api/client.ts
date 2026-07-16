@@ -74,7 +74,9 @@ export type SchedulerStatus = {
   expression: string;
   status: string;
   lastRunAt: string | null;
+  lastScheduledCount: number;
   lastEnqueuedCount: number;
+  lastSkippedCount: number;
   lastError: string | null;
 };
 
@@ -123,20 +125,43 @@ export type ScrapeJobStatusResponse = {
   job: ScrapeJobStatus;
 };
 
-export type CompetitorData = {
-  id: string;
-  product_id: string;
-  competitor_name: string;
-  competitor_url: string | null;
+export type CompetitorTargetLatestScrape = {
   price: string;
-  scraped_at: string;
-  is_available: boolean;
-  raw_html_hash: string | null;
-  created_at: string;
+  isAvailable: boolean;
+  scrapedAt: string;
 };
 
-export type ProductCompetitorsResponse = {
-  items: CompetitorData[];
+export type CompetitorTargetBase = {
+  id: string;
+  productId: string;
+  competitorName: string;
+  competitorUrl: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CompetitorTarget = CompetitorTargetBase & {
+  latestScrape: CompetitorTargetLatestScrape | null;
+};
+
+export type CompetitorTargetsResponse = {
+  items: CompetitorTarget[];
+};
+
+export type CreateCompetitorTargetInput = {
+  competitorName: string;
+  competitorUrl: string;
+};
+
+export type UpdateCompetitorTargetInput = {
+  competitorName?: string;
+  competitorUrl?: string;
+  isActive?: boolean;
+};
+
+export type CompetitorTargetMutationResponse = {
+  target: CompetitorTargetBase;
 };
 
 export type GetProductsParams = {
@@ -253,13 +278,9 @@ export async function getScraperStatus(accessToken: string): Promise<ScraperStat
   return parseResponse<ScraperStatusResponse>(response);
 }
 
-export async function triggerScrape(
+export async function triggerTargetScrape(
   accessToken: string,
-  payload: {
-    productId: string;
-    competitorName: string;
-    competitorUrl: string;
-  }
+  targetId: string
 ): Promise<TriggerScrapeResponse> {
   const response = await fetch(`${API_BASE_URL}/api/scraper/trigger`, {
     method: 'POST',
@@ -267,7 +288,7 @@ export async function triggerScrape(
       ...authHeaders(accessToken),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ targetId }),
   });
 
   return parseResponse<TriggerScrapeResponse>(response);
@@ -275,27 +296,72 @@ export async function triggerScrape(
 
 export async function getScrapeJobStatus(
   accessToken: string,
-  jobId: string
+  jobId: string,
+  signal?: AbortSignal
 ): Promise<ScrapeJobStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/api/scraper/jobs/${encodeURIComponent(jobId)}`, {
     headers: authHeaders(accessToken),
+    signal,
   });
 
   return parseResponse<ScrapeJobStatusResponse>(response);
 }
 
-export async function getProductCompetitors(
+export async function getCompetitorTargets(
   accessToken: string,
-  productId: string
-): Promise<ProductCompetitorsResponse> {
+  productId: string,
+  signal?: AbortSignal
+): Promise<CompetitorTargetsResponse> {
   const response = await fetch(
-    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitors`,
+    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitor-targets`,
     {
       headers: authHeaders(accessToken),
+      signal,
     }
   );
 
-  return parseResponse<ProductCompetitorsResponse>(response);
+  return parseResponse<CompetitorTargetsResponse>(response);
+}
+
+export async function createCompetitorTarget(
+  accessToken: string,
+  productId: string,
+  input: CreateCompetitorTargetInput
+): Promise<CompetitorTargetMutationResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitor-targets`,
+    {
+      method: 'POST',
+      headers: {
+        ...authHeaders(accessToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    }
+  );
+
+  return parseResponse<CompetitorTargetMutationResponse>(response);
+}
+
+export async function updateCompetitorTarget(
+  accessToken: string,
+  productId: string,
+  targetId: string,
+  input: UpdateCompetitorTargetInput
+): Promise<CompetitorTargetMutationResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitor-targets/${encodeURIComponent(targetId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...authHeaders(accessToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    }
+  );
+
+  return parseResponse<CompetitorTargetMutationResponse>(response);
 }
 
 export async function getProductSalesHistory(

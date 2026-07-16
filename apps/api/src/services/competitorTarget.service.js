@@ -41,10 +41,38 @@ export async function assertActiveProduct(productId, { queryFn = query } = {}) {
 export async function listCompetitorTargets(productId, { queryFn = query } = {}) {
   await assertActiveProduct(productId, { queryFn });
   const result = await queryFn(
-    `SELECT ${TARGET_COLUMNS}
-     FROM competitor_targets
-     WHERE product_id = $1
-     ORDER BY created_at ASC, id ASC`,
+    `SELECT
+       ct.id,
+       ct.product_id AS "productId",
+       ct.competitor_name AS "competitorName",
+       ct.competitor_url AS "competitorUrl",
+       ct.is_active AS "isActive",
+       ct.created_at AS "createdAt",
+       ct.updated_at AS "updatedAt",
+       CASE
+         WHEN latest.id IS NULL THEN NULL
+         ELSE json_build_object(
+           'price', latest.price::text,
+           'isAvailable', latest.is_available,
+           'scrapedAt', latest.scraped_at
+         )
+       END AS "latestScrape"
+     FROM competitor_targets ct
+     LEFT JOIN LATERAL (
+       SELECT
+         cd.id,
+         cd.price,
+         cd.is_available,
+         cd.scraped_at
+       FROM competitor_data cd
+       WHERE cd.product_id = ct.product_id
+         AND cd.competitor_name = ct.competitor_name
+         AND cd.competitor_url = ct.competitor_url
+       ORDER BY cd.scraped_at DESC, cd.created_at DESC, cd.id DESC
+       LIMIT 1
+     ) latest ON TRUE
+     WHERE ct.product_id = $1
+     ORDER BY ct.created_at ASC, ct.id ASC`,
     [productId]
   );
 

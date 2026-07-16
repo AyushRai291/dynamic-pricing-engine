@@ -3,30 +3,25 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   ApiError,
-  CompetitorData,
-  Product,
+  CompetitorTargetLatestScrape,
   ScrapeJobStatus,
   ScrapeJobSummary,
   getScrapeJobStatus,
 } from '../api/client';
+import { formatInr } from '../utils/sales';
 
 type JobStatusCardProps = {
   accessToken: string;
   job: ScrapeJobSummary | null;
-  product: Product | null;
-  latestCompetitor: CompetitorData | null;
-  onTerminal: (job: ScrapeJobStatus, product: Product) => void;
+  targetId: string | null;
+  targetName: string;
+  latestScrape: CompetitorTargetLatestScrape | null;
+  onTerminal: (job: ScrapeJobStatus, targetId: string) => void;
   onUnauthorized: () => void;
 };
 
 const POLL_INTERVAL_MS = 1800;
 const MAX_POLL_MS = 120000;
-
-const currencyFormatter = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
-  maximumFractionDigits: 2,
-});
 
 function getBadgeClass(state: string) {
   if (state === 'completed') {
@@ -60,11 +55,28 @@ function StatusIcon({ state }: { state: string }) {
   return <Loader2 className="h-4 w-4 animate-spin" />;
 }
 
+function sanitizeFailureReason(reason?: string) {
+  if (!reason) {
+    return 'The scrape could not be completed after its configured retries.';
+  }
+
+  const safeReasons = [
+    'Price could not be parsed from HTML',
+    'Product not found',
+    'competitorUrl host is not allowed',
+  ];
+
+  return safeReasons.some((safeReason) => reason.includes(safeReason))
+    ? reason
+    : 'The scrape could not be completed after its configured retries.';
+}
+
 export default function JobStatusCard({
   accessToken,
   job,
-  product,
-  latestCompetitor,
+  targetId,
+  targetName,
+  latestScrape,
   onTerminal,
   onUnauthorized,
 }: JobStatusCardProps) {
@@ -74,7 +86,7 @@ export default function JobStatusCard({
   const terminalNotifiedRef = useRef(false);
 
   useEffect(() => {
-    if (!job || !product) {
+    if (!job || !targetId) {
       setCurrentJob(null);
       setPollError('');
       activeJobIdRef.current = null;
@@ -82,7 +94,8 @@ export default function JobStatusCard({
     }
 
     const pollingJob = job;
-    const pollingProduct = product;
+    const pollingTargetId = targetId;
+    const controller = new AbortController();
     let timeoutId: number | undefined;
     let isCancelled = false;
     const startedAt = Date.now();
@@ -97,33 +110,40 @@ export default function JobStatusCard({
       }
 
       try {
-        const result = await getScrapeJobStatus(accessToken, pollingJob.id);
+        const result = await getScrapeJobStatus(
+          accessToken,
+          pollingJob.id,
+          controller.signal
+        );
 
         if (isCancelled || activeJobIdRef.current !== pollingJob.id) {
           return;
         }
 
         setCurrentJob(result.job);
-
         const isTerminal = result.job.state === 'completed' || result.job.state === 'failed';
 
         if (isTerminal) {
           if (!terminalNotifiedRef.current) {
             terminalNotifiedRef.current = true;
-            onTerminal(result.job, pollingProduct);
+            onTerminal(result.job, pollingTargetId);
           }
-
           return;
         }
 
         if (Date.now() - startedAt >= MAX_POLL_MS) {
-          setPollError('Polling stopped after two minutes. Refresh the job manually from the queue endpoint if needed.');
+          setPollError('Polling stopped after two minutes. The queue may still finish this job.');
           return;
         }
 
         timeoutId = window.setTimeout(poll, POLL_INTERVAL_MS);
       } catch (error) {
-        if (isCancelled || activeJobIdRef.current !== pollingJob.id) {
+        if (
+          isCancelled
+          || controller.signal.aborted
+          || (error instanceof DOMException && error.name === 'AbortError')
+          || activeJobIdRef.current !== pollingJob.id
+        ) {
           return;
         }
 
@@ -132,22 +152,26 @@ export default function JobStatusCard({
           return;
         }
 
-        setPollError(error instanceof Error ? error.message : 'Unable to load job status');
-        timeoutId = window.setTimeout(poll, POLL_INTERVAL_MS);
+        setPollError(error instanceof Error ? error.message : 'Unable to load job status.');
+
+        if (Date.now() - startedAt < MAX_POLL_MS) {
+          timeoutId = window.setTimeout(poll, POLL_INTERVAL_MS);
+        }
       }
     }
 
-    poll();
+    void poll();
 
     return () => {
       isCancelled = true;
+      controller.abort();
       if (timeoutId) {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [accessToken, job, onTerminal, onUnauthorized, product]);
+  }, [accessToken, job, onTerminal, onUnauthorized, targetId]);
 
-  if (!job || !product) {
+  if (!job || !targetId) {
     return null;
   }
 
@@ -159,29 +183,24 @@ export default function JobStatusCard({
     processedAt: null,
     finishedAt: null,
   };
-  const resultPrice = displayJob.result?.price;
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="job-status-title">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Current job</p>
-          <h2 id="job-status-title" className="mt-1 text-base font-bold text-slate-950">
-            {product.name}
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">SKU {product.sku}</p>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="target-job-title">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Latest queue job</p>
+          <h3 id="target-job-title" className="mt-1 truncate text-base font-bold text-slate-950">
+            {targetName}
+          </h3>
+          <p className="mt-1 break-all text-xs text-slate-500">Job ID {displayJob.id}</p>
         </div>
-        <span className={`inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold ${getBadgeClass(displayJob.state)}`}>
+        <span className={`inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold capitalize ${getBadgeClass(displayJob.state)}`}>
           <StatusIcon state={displayJob.state} />
           {displayJob.state}
         </span>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Job ID</p>
-          <p className="mt-1 break-all text-sm font-semibold text-slate-800">{displayJob.id}</p>
-        </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Attempts</p>
           <p className="mt-1 text-sm font-semibold text-slate-800">
@@ -197,33 +216,29 @@ export default function JobStatusCard({
       </div>
 
       {displayJob.state === 'completed' ? (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          Completed
-          {resultPrice !== undefined ? ` · parsed ${currencyFormatter.format(resultPrice)}` : ''}
-          {displayJob.result?.competitorName ? ` · ${displayJob.result.competitorName}` : ''}
+        <div className="mt-4 space-y-1 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900" role="status">
+          <p className="font-semibold">Queue job completed.</p>
+          {displayJob.result?.price !== undefined ? (
+            <p>Parsed response: {formatInr(displayJob.result.price)}</p>
+          ) : null}
+          {latestScrape ? (
+            <p>Latest trusted target price: {formatInr(latestScrape.price)}</p>
+          ) : (
+            <p>The latest target row is being confirmed.</p>
+          )}
         </div>
       ) : null}
 
       {displayJob.state === 'failed' ? (
-        <div className="mt-4 flex gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mt-4 flex gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{displayJob.failureReason || 'The scrape job failed.'}</span>
+          <span>{sanitizeFailureReason(displayJob.failureReason)}</span>
         </div>
       ) : null}
 
       {pollError ? (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
           {pollError}
-        </div>
-      ) : null}
-
-      {latestCompetitor ? (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
-          <p className="font-semibold text-slate-800">Latest competitor row</p>
-          <p className="mt-1 text-slate-600">
-            {latestCompetitor.competitor_name} · {currencyFormatter.format(Number(latestCompetitor.price))} ·{' '}
-            {new Date(latestCompetitor.scraped_at).toLocaleString()}
-          </p>
         </div>
       ) : null}
     </section>

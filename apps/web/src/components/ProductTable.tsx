@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, History, Search, TimerReset } from 'lucide-react';
+import { ChevronLeft, ChevronRight, History, Radar, Search } from 'lucide-react';
 
 import { Product, ProductsResponse } from '../api/client';
 
@@ -8,7 +8,6 @@ type ProductTableProps = {
   pagination: ProductsResponse['pagination'] | null;
   isLoading: boolean;
   error: string;
-  queueAvailable: boolean;
   searchValue: string;
   onSearchChange: (value: string) => void;
   categoryFilter: string;
@@ -16,7 +15,7 @@ type ProductTableProps = {
   onCategoryChange: (value: string) => void;
   page: number;
   onPageChange: (page: number) => void;
-  onScrape: (product: Product) => void;
+  onManageCompetitors: (product: Product) => void;
   onViewSales: (product: Product) => void;
 };
 
@@ -87,7 +86,6 @@ export default function ProductTable({
   pagination,
   isLoading,
   error,
-  queueAvailable,
   searchValue,
   onSearchChange,
   categoryFilter,
@@ -95,7 +93,7 @@ export default function ProductTable({
   onCategoryChange,
   page,
   onPageChange,
-  onScrape,
+  onManageCompetitors,
   onViewSales,
 }: ProductTableProps) {
   if (isLoading) {
@@ -160,12 +158,6 @@ export default function ProductTable({
           </select>
         </div>
       </div>
-
-      {!queueAvailable ? (
-        <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-          Scrape actions are disabled while the Redis-backed queue is unavailable.
-        </div>
-      ) : null}
 
       {!hasAnyLoadedProducts ? (
         <div className="px-5 py-12 text-center">
@@ -236,12 +228,11 @@ export default function ProductTable({
                       <button
                         className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                         type="button"
-                        onClick={() => onScrape(product)}
-                        disabled={!queueAvailable}
-                        aria-label={`Scrape competitor for ${product.name}`}
+                        onClick={() => onManageCompetitors(product)}
+                        aria-label={`Manage competitors for ${product.name}`}
                       >
-                        <TimerReset className="h-4 w-4" />
-                        Scrape
+                        <Radar className="h-4 w-4" />
+                        Competitors
                       </button>
                     </div>
                   </td>

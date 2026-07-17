@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import test from 'node:test';
 
 process.env.JWT_ACCESS_SECRET ||= 'test-access-secret';
@@ -18,6 +20,8 @@ const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 const SUGGESTION_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
 const HISTORY_ID = '44444444-4444-4444-8444-444444444444';
+const execFileAsync = promisify(execFile);
+const apiDirectory = new URL('..', import.meta.url);
 const productRow = {
   id: PRODUCT_ID,
   sku: 'SKU-1',
@@ -196,6 +200,7 @@ test('pending suggestion creation scores latest competitors and inserts schema-c
           suggested_price: '105.00',
           price_score: '80.00',
           status: 'pending',
+          expires_at: '2026-07-18T05:00:00.000Z',
           feature_vector: params[4],
           created_at: '2026-07-17T05:00:00.000Z',
         }],
@@ -227,12 +232,15 @@ test('pending suggestion creation scores latest competitors and inserts schema-c
   assert.match(calls[1].sql, /is_active = TRUE/);
   assert.match(calls[1].sql, /FOR UPDATE/);
   assert.deepEqual(calls[1].params, [PRODUCT_ID]);
-  assert.match(calls[2].sql, /status = 'pending'/);
-  assert.deepEqual(calls[2].params, [PRODUCT_ID]);
+  assert.match(calls[2].sql, /SET status = 'expired'/);
+  assert.match(calls[2].sql, /COALESCE\(expires_at, created_at \+ \(\$1::int \* INTERVAL '1 hour'\)\)/);
+  assert.deepEqual(calls[2].params, [24, PRODUCT_ID]);
+  assert.match(calls[3].sql, /status = 'pending'/);
+  assert.deepEqual(calls[3].params, [PRODUCT_ID]);
 
   const insert = calls.find(({ sql }) => /INSERT INTO price_suggestions/.test(sql));
   assert.ok(insert);
-  assert.match(insert.sql, /VALUES \(\$1, \$2, \$3, \$4, 'pending', \$5::jsonb\)/);
+  assert.match(insert.sql, /clock_timestamp\(\) \+ \(\$6::int \* INTERVAL '1 hour'\)/);
   assert.doesNotMatch(insert.sql, new RegExp(PRODUCT_ID));
   assert.deepEqual(insert.params.slice(0, 4), [PRODUCT_ID, 100, 105, 80]);
   assert.deepEqual(insert.params[4].competitor_snapshot, {
@@ -246,15 +254,17 @@ test('pending suggestion creation scores latest competitors and inserts schema-c
   assert.equal(insert.params[4].final_guarded_candidate, 105);
   assert.deepEqual(insert.params[4].applied_guardrails, []);
   assert.match(insert.params[4].limitation, /synthetic bootstrap/);
+  assert.equal(insert.params[5], 24);
   assert.equal(calls.at(-1).sql, 'COMMIT');
   assert.equal(wasReleased(), true);
 
   const mutatingSql = calls
     .map(({ sql }) => sql)
     .filter((sql) => /^\s*(INSERT|UPDATE|DELETE)/i.test(sql));
-  assert.equal(mutatingSql.length, 1);
-  assert.match(mutatingSql[0], /INSERT INTO price_suggestions/);
-  assert.doesNotMatch(mutatingSql[0], /UPDATE\s+products|price_history/i);
+  assert.equal(mutatingSql.length, 2);
+  assert.match(mutatingSql[0], /SET status = 'expired'/);
+  assert.match(mutatingSql[1], /INSERT INTO price_suggestions/);
+  assert.equal(mutatingSql.some((sql) => /UPDATE\s+products|price_history/i.test(sql)), false);
   assert.deepEqual(suggestion, {
     id: SUGGESTION_ID,
     status: 'pending',
@@ -278,6 +288,8 @@ test('pending suggestion creation scores latest competitors and inserts schema-c
     raw_candidate: 105,
     applied_guardrails: [],
     created_at: '2026-07-17T05:00:00.000Z',
+    expires_at: '2026-07-18T05:00:00.000Z',
+    expiresAt: '2026-07-18T05:00:00.000Z',
     limitation: insert.params[4].limitation,
     aiRationale: null,
   });
@@ -468,6 +480,10 @@ test('approval locks both rows and atomically updates price, review data, and on
       return { rows: [createDecisionProductRow()] };
     }
 
+    if (/SET status = 'expired'/.test(sql)) {
+      return { rows: [] };
+    }
+
     if (/UPDATE price_suggestions/.test(sql)) {
       return {
         rows: [createDecisionSuggestionRow({
@@ -503,20 +519,23 @@ test('approval locks both rows and atomically updates price, review data, and on
   assert.equal(calls[0].sql, 'BEGIN');
   assert.match(calls[1].sql, /WHERE ps\.id = \$1[\s\S]*FOR UPDATE OF ps/);
   assert.deepEqual(calls[1].params, [SUGGESTION_ID]);
-  assert.match(calls[2].sql, /FROM products[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/);
-  assert.deepEqual(calls[2].params, [PRODUCT_ID]);
+  assert.match(calls[2].sql, /SET status = 'expired'/);
+  assert.deepEqual(calls[2].params, [24, SUGGESTION_ID]);
+  assert.match(calls[3].sql, /FROM products[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/);
+  assert.deepEqual(calls[3].params, [PRODUCT_ID]);
 
   const productUpdates = calls.filter(({ sql }) => /UPDATE products/.test(sql));
   assert.equal(productUpdates.length, 1);
   assert.deepEqual(productUpdates[0].params, [PRODUCT_ID, '105.00']);
 
-  const suggestionUpdates = calls.filter(({ sql }) => /UPDATE price_suggestions/.test(sql));
+  const suggestionUpdates = calls.filter(({ sql }) => /SET status = 'approved'/.test(sql));
   assert.equal(suggestionUpdates.length, 1);
-  assert.deepEqual(suggestionUpdates[0].params, [SUGGESTION_ID, REVIEWER_ID]);
+  assert.deepEqual(suggestionUpdates[0].params, [SUGGESTION_ID, REVIEWER_ID, 24]);
   assert.match(suggestionUpdates[0].sql, /status = 'approved'/);
   assert.match(suggestionUpdates[0].sql, /approved_by = \$2/);
   assert.match(suggestionUpdates[0].sql, /approved_at = NOW\(\)/);
   assert.match(suggestionUpdates[0].sql, /status = 'pending'/);
+  assert.match(suggestionUpdates[0].sql, /> clock_timestamp\(\)/);
   assert.doesNotMatch(
     suggestionUpdates[0].sql.split(/WHERE/i)[0],
     /feature_vector|ai_rationale|suggested_price|current_price|price_score/
@@ -564,6 +583,10 @@ test('rejection only transitions the locked suggestion and preserves saved decis
       return { rows: [createDecisionSuggestionRow()] };
     }
 
+    if (/SET status = 'expired'/.test(sql)) {
+      return { rows: [] };
+    }
+
     if (/UPDATE price_suggestions/.test(sql)) {
       return {
         rows: [createDecisionSuggestionRow({
@@ -581,9 +604,10 @@ test('rejection only transitions the locked suggestion and preserves saved decis
 
   assert.equal(calls[0].sql, 'BEGIN');
   assert.match(calls[1].sql, /FOR UPDATE OF ps/);
-  const suggestionUpdates = calls.filter(({ sql }) => /UPDATE price_suggestions/.test(sql));
+  const suggestionUpdates = calls.filter(({ sql }) => /SET status = 'rejected'/.test(sql));
   assert.equal(suggestionUpdates.length, 1);
-  assert.deepEqual(suggestionUpdates[0].params, [SUGGESTION_ID]);
+  assert.deepEqual(suggestionUpdates[0].params, [SUGGESTION_ID, 24]);
+  assert.match(suggestionUpdates[0].sql, /> clock_timestamp\(\)/);
   assert.doesNotMatch(suggestionUpdates[0].sql.split(/WHERE/i)[0], /approved_by|approved_at/);
   assert.equal(calls.some(({ sql }) => /UPDATE products|INSERT INTO price_history/.test(sql)), false);
   assert.equal(calls.at(-1).sql, 'COMMIT');
@@ -594,6 +618,47 @@ test('rejection only transitions the locked suggestion and preserves saved decis
   assert.equal(suggestion.current_price, 100);
   assert.equal(suggestion.suggested_price, 105);
   assert.deepEqual(suggestion.aiRationale, persistedRationale);
+});
+
+test('due suggestions persist expired and cannot be approved or rejected', async (t) => {
+  for (const operation of ['approve', 'reject']) {
+    await t.test(operation, async () => {
+      const calls = [];
+      const { pool, wasReleased } = createMockPool(async (sql, params) => {
+        calls.push({ sql, params });
+
+        if (/FROM price_suggestions ps/.test(sql)) {
+          return {
+            rows: [createDecisionSuggestionRow({
+              expires_at: null,
+              created_at: '2020-01-01T00:00:00.000Z',
+            })],
+          };
+        }
+
+        if (/SET status = 'expired'/.test(sql)) {
+          return { rows: [{ id: SUGGESTION_ID, status: 'expired' }] };
+        }
+
+        return { rows: [] };
+      });
+      const promise = operation === 'approve'
+        ? approvePriceSuggestion(SUGGESTION_ID, REVIEWER_ID, { poolInstance: pool })
+        : rejectPriceSuggestion(SUGGESTION_ID, { poolInstance: pool });
+
+      await assert.rejects(
+        promise,
+        (error) => error.statusCode === 409 && /expired/.test(error.message)
+      );
+
+      const expiryUpdate = calls.find(({ sql }) => /SET status = 'expired'/.test(sql));
+      assert.deepEqual(expiryUpdate.params, [24, SUGGESTION_ID]);
+      assert.match(expiryUpdate.sql, /expires_at = COALESCE/);
+      assert.equal(calls.at(-1).sql, 'COMMIT');
+      assert.equal(calls.some(({ sql }) => /UPDATE products|INSERT INTO price_history/.test(sql)), false);
+      assert.equal(wasReleased(), true);
+    });
+  }
 });
 
 test('approval conflicts and missing records roll back before any write', async (t) => {
@@ -680,7 +745,10 @@ test('approval conflicts and missing records roll back before any write', async 
       );
 
       assert.equal(
-        calls.some(({ sql }) => /^\s*(UPDATE|INSERT|DELETE)/i.test(sql)),
+        calls.some(({ sql }) => (
+          /^\s*(UPDATE|INSERT|DELETE)/i.test(sql)
+          && !/SET status = 'expired'/.test(sql)
+        )),
         false
       );
       assert.equal(calls.at(-1).sql, 'ROLLBACK');
@@ -689,7 +757,7 @@ test('approval conflicts and missing records roll back before any write', async 
   }
 });
 
-test('an unexpected failure after the product update rolls back without history or commit', async () => {
+test('an unexpected suggestion failure rolls back before product or history writes', async () => {
   const calls = [];
   const databaseError = new Error('database write failed');
   const { pool, wasReleased } = createMockPool(async (sql, params) => {
@@ -701,6 +769,10 @@ test('an unexpected failure after the product update rolls back without history 
 
     if (/FROM products/.test(sql)) {
       return { rows: [createDecisionProductRow()] };
+    }
+
+    if (/SET status = 'expired'/.test(sql)) {
+      return { rows: [] };
     }
 
     if (/UPDATE price_suggestions/.test(sql)) {
@@ -715,7 +787,7 @@ test('an unexpected failure after the product update rolls back without history 
     (error) => error === databaseError
   );
 
-  assert.equal(calls.filter(({ sql }) => /UPDATE products/.test(sql)).length, 1);
+  assert.equal(calls.filter(({ sql }) => /UPDATE products/.test(sql)).length, 0);
   assert.equal(calls.some(({ sql }) => /INSERT INTO price_history/.test(sql)), false);
   assert.equal(calls.some(({ sql }) => sql === 'COMMIT'), false);
   assert.equal(calls.at(-1).sql, 'ROLLBACK');
@@ -758,6 +830,10 @@ test('two simultaneous approvals serialize so only one price change and history 
 
           if (/FROM products/.test(sql)) {
             return { rows: [createDecisionProductRow({ current_price: productPrice })] };
+          }
+
+          if (/SET status = 'expired'/.test(sql)) {
+            return { rows: [] };
           }
 
           if (/UPDATE products/.test(sql)) {
@@ -853,9 +929,11 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
     } }
   );
 
-  assert.deepEqual(listCalls[0].params, ['pending', 10]);
-  assert.match(listCalls[0].sql, /ps\.status = \$1/);
-  assert.match(listCalls[0].sql, /LIMIT \$2/);
+  assert.deepEqual(listCalls[0].params, [24]);
+  assert.match(listCalls[0].sql, /SET status = 'expired'/);
+  assert.deepEqual(listCalls[1].params, ['pending', 10]);
+  assert.match(listCalls[1].sql, /ps\.status = \$1/);
+  assert.match(listCalls[1].sql, /LIMIT \$2/);
   assert.equal(listResult.items[0].percentage_change, 5);
   assert.equal(listResult.items[0].current_price, 99.99);
   assert.equal(listResult.items[0].suggested_price, 104.99);
@@ -863,6 +941,7 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
   assert.equal(listResult.items[0].aiRationale, null);
   assert.equal(listResult.items[0].approved_by, null);
   assert.equal(listResult.items[0].approved_at, null);
+  assert.equal(listResult.items[0].expiresAt, '2026-07-18T05:00:00.000Z');
 
   const detailCalls = [];
   const detail = await getPriceSuggestionById(SUGGESTION_ID, {
@@ -884,9 +963,12 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
   assert.equal(detail.approved_by, REVIEWER_ID);
   assert.equal(detail.approved_at, '2026-07-17T07:00:00.000Z');
   assert.deepEqual(detail.aiRationale, persistedRationale);
-  assert.deepEqual(detailCalls[0].params, [SUGGESTION_ID]);
-  assert.match(detailCalls[0].sql, /ps\.id = \$1/);
-  assert.doesNotMatch(detailCalls[0].sql, new RegExp(SUGGESTION_ID));
+  assert.deepEqual(detailCalls[0].params, [24, SUGGESTION_ID]);
+  assert.match(detailCalls[0].sql, /SET status = 'expired'/);
+  assert.deepEqual(detailCalls[1].params, [SUGGESTION_ID]);
+  assert.match(detailCalls[1].sql, /ps\.id = \$1/);
+  assert.doesNotMatch(detailCalls[1].sql, new RegExp(SUGGESTION_ID));
+  assert.equal(detail.expiresAt, null);
 
   await assert.rejects(
     getPriceSuggestionById(SUGGESTION_ID, {
@@ -894,6 +976,46 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
     }),
     (error) => error.statusCode === 404 && error.message === 'Price suggestion not found'
   );
+});
+
+test('list and detail reads persist and expose truthful expired status and expiresAt', async () => {
+  const expiresAt = '2026-07-18T05:00:00.000Z';
+  let status = 'pending';
+  const row = {
+    id: SUGGESTION_ID,
+    product_id: PRODUCT_ID,
+    product_name: 'Example product',
+    sku: 'SKU-1',
+    current_price: '100.00',
+    suggested_price: '105.00',
+    price_score: '80.00',
+    status,
+    approved_by: null,
+    approved_at: null,
+    expires_at: null,
+    feature_vector: {},
+    ai_rationale: null,
+    created_at: '2026-07-17T05:00:00.000Z',
+  };
+  const queryFn = async (sql) => {
+    if (/SET status = 'expired'/.test(sql) && status === 'pending') {
+      status = 'expired';
+      return { rows: [{ id: SUGGESTION_ID, status }] };
+    }
+
+    return { rows: [{ ...row, status, expires_at: expiresAt }] };
+  };
+
+  const list = await listPriceSuggestions(
+    { status: 'expired', limit: 10 },
+    { queryFn }
+  );
+  const detail = await getPriceSuggestionById(SUGGESTION_ID, { queryFn });
+
+  assert.equal(list.items[0].status, 'expired');
+  assert.equal(list.items[0].expiresAt, expiresAt);
+  assert.equal(detail.status, 'expired');
+  assert.equal(detail.expiresAt, expiresAt);
 });
 
 function createRationaleSuggestionRow(overrides = {}) {
@@ -966,18 +1088,21 @@ test('rationale generation uses the saved snapshot and atomically persists only 
     suggestionId: SUGGESTION_ID,
     rationale: persistedRationale,
   });
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[0].params, [SUGGESTION_ID]);
-  assert.match(calls[0].sql, /WHERE ps\.id = \$1/);
-  assert.doesNotMatch(calls[0].sql, /competitor_data|competitor_targets|competitor_url/i);
-  assert.doesNotMatch(calls[0].sql, new RegExp(SUGGESTION_ID));
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[0].params, [24, SUGGESTION_ID]);
+  assert.match(calls[0].sql, /SET status = 'expired'/);
+  assert.deepEqual(calls[1].params, [SUGGESTION_ID]);
+  assert.match(calls[1].sql, /WHERE ps\.id = \$1/);
+  assert.doesNotMatch(calls[1].sql, /competitor_data|competitor_targets|competitor_url/i);
+  assert.doesNotMatch(calls[1].sql, new RegExp(SUGGESTION_ID));
 
-  const update = calls[1];
-  assert.deepEqual(update.params, [SUGGESTION_ID, JSON.stringify(persistedRationale)]);
+  const update = calls[2];
+  assert.deepEqual(update.params, [SUGGESTION_ID, JSON.stringify(persistedRationale), 24]);
   assert.match(update.sql, /SET ai_rationale = \$2/);
   assert.match(update.sql, /WHERE id = \$1/);
   assert.match(update.sql, /status = 'pending'/);
   assert.match(update.sql, /ai_rationale IS NULL/);
+  assert.match(update.sql, /COALESCE\([\s\S]*expires_at[\s\S]*\) > clock_timestamp\(\)/);
   assert.deepEqual(JSON.parse(update.params[1]), persistedRationale);
   const setClause = update.sql.split(/WHERE/i)[0];
   assert.doesNotMatch(
@@ -985,8 +1110,8 @@ test('rationale generation uses the saved snapshot and atomically persists only 
     /suggested_price|current_price|price_score|confidence_score|status|product/i
   );
   const mutations = calls.filter(({ sql }) => /^\s*(INSERT|UPDATE|DELETE)/i.test(sql));
-  assert.equal(mutations.length, 1);
-  assert.doesNotMatch(mutations[0].sql, /UPDATE\s+products|price_history/i);
+  assert.equal(mutations.length, 2);
+  assert.equal(mutations.some(({ sql }) => /UPDATE\s+products|price_history/i.test(sql)), false);
   assert.equal(calls.some(({ sql }) => /BEGIN|COMMIT|ROLLBACK/.test(sql)), false);
 });
 
@@ -1011,8 +1136,8 @@ test('an existing rationale is returned without a second model call or update', 
   });
 
   assert.equal(modelCalled, false);
-  assert.equal(calls.length, 1);
-  assert.equal(calls.some(({ sql }) => /^\s*UPDATE/i.test(sql)), false);
+  assert.equal(calls.length, 3);
+  assert.equal(calls.some(({ sql }) => /SET ai_rationale/.test(sql)), false);
   assert.deepEqual(result, {
     generated: false,
     suggestionId: SUGGESTION_ID,
@@ -1043,9 +1168,9 @@ test('unusable or unavailable Gemini results never reach persistence', async (t)
         (error) => error === failure
       );
 
-      assert.equal(calls.length, 1);
+      assert.equal(calls.length, 2);
       assert.equal(
-        calls.some(({ sql }) => /^\s*(INSERT|UPDATE|DELETE)/i.test(sql)),
+        calls.some(({ sql }) => /SET ai_rationale/.test(sql)),
         false
       );
     });
@@ -1087,16 +1212,20 @@ test('missing and non-pending suggestions reject before calling Gemini', async (
 });
 
 test('a concurrent atomic winner is returned without overwriting its rationale', async () => {
-  let callCount = 0;
+  const calls = [];
   const concurrentRationale = {
     ...persistedRationale,
     summary: 'Another request persisted this rationale first.',
   };
   const result = await generatePriceSuggestionRationale(SUGGESTION_ID, {
     queryFn: async (sql) => {
-      callCount += 1;
+      calls.push(sql);
 
-      if (callCount === 1) {
+      if (/SET status = 'expired'/.test(sql)) {
+        return { rows: [] };
+      }
+
+      if (/FROM price_suggestions ps/.test(sql)) {
         return { rows: [createRationaleSuggestionRow()] };
       }
 
@@ -1111,10 +1240,70 @@ test('a concurrent atomic winner is returned without overwriting its rationale',
     generateRationaleFn: async () => persistedRationale,
   });
 
-  assert.equal(callCount, 3);
+  assert.equal(calls.length, 5);
   assert.deepEqual(result, {
     generated: false,
     suggestionId: SUGGESTION_ID,
     rationale: concurrentRationale,
   });
+});
+
+test('due suggestions persist expired and reject rationale before Gemini', async () => {
+  const calls = [];
+  let modelCalled = false;
+
+  await assert.rejects(
+    generatePriceSuggestionRationale(SUGGESTION_ID, {
+      queryFn: async (sql, params) => {
+        calls.push({ sql, params });
+        return /SET status = 'expired'/.test(sql)
+          ? { rows: [{ id: SUGGESTION_ID, status: 'expired' }] }
+          : { rows: [] };
+      },
+      generateRationaleFn: async () => {
+        modelCalled = true;
+      },
+    }),
+    (error) => error.statusCode === 409 && /expired/.test(error.message)
+  );
+
+  assert.equal(modelCalled, false);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].params, [24, SUGGESTION_ID]);
+  assert.doesNotMatch(calls[0].sql, /ai_rationale/);
+});
+
+test('price suggestion TTL defaults to 24 hours and rejects values outside 1-720', async (t) => {
+  const baseEnvironment = {
+    ...process.env,
+    JWT_ACCESS_SECRET: 'test-access-secret',
+    JWT_REFRESH_SECRET: 'test-refresh-secret',
+  };
+  delete baseEnvironment.PRICE_SUGGESTION_TTL_HOURS;
+  const command = [
+    '--input-type=module',
+    '-e',
+    "const env = await import('./src/config/env.js'); process.stdout.write(String(env.PRICE_SUGGESTION_TTL_HOURS));",
+  ];
+  const defaultResult = await execFileAsync(process.execPath, command, {
+    cwd: apiDirectory,
+    env: baseEnvironment,
+  });
+
+  assert.equal(defaultResult.stdout, '24');
+
+  for (const value of ['0', '721', '1.5']) {
+    await t.test(value, async () => {
+      await assert.rejects(
+        execFileAsync(process.execPath, command, {
+          cwd: apiDirectory,
+          env: { ...baseEnvironment, PRICE_SUGGESTION_TTL_HOURS: value },
+        }),
+        (error) => {
+          assert.match(error.stderr, /PRICE_SUGGESTION_TTL_HOURS must be an integer between 1 and 720/);
+          return true;
+        }
+      );
+    });
+  }
 });

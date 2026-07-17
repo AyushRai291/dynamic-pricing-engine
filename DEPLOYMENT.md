@@ -76,10 +76,11 @@ The password must be 12–72 characters and contain uppercase, lowercase, numeri
 ```sh
 docker compose --env-file .env.production -f compose.production.yml ps
 curl http://localhost:8080/health
+curl http://localhost:8080/health/ready
 curl http://localhost:8080/
 ```
 
-Change `8080` if `WEB_PORT` differs. PostgreSQL, Redis, ML, and API have no host-published ports. `/health` is proxied by Web/Nginx to the API.
+Change `8080` if `WEB_PORT` differs. PostgreSQL, Redis, ML, and API have no host-published ports. `/health` is lightweight liveness; `/health/ready` checks API-to-PostgreSQL readiness. Both are proxied by Web/Nginx. API readiness intentionally does not depend on optional Gemini or scraper availability.
 
 ## Logs and shutdown
 

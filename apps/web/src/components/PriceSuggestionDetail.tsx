@@ -61,6 +61,10 @@ function humanize(value: string | null) {
   return value ? value.replaceAll('_', ' ') : 'Not available';
 }
 
+function getExpiresAt(suggestion: PriceSuggestion) {
+  return suggestion.expiresAt ?? suggestion.expires_at;
+}
+
 function ActionIcon({ action }: { action: PriceSuggestion['action'] }) {
   if (action === 'increase') {
     return <ArrowUpRight className="h-4 w-4" />;
@@ -480,6 +484,9 @@ export default function PriceSuggestionDetail({
                     <EvidenceItem label="Model source" value={humanize(suggestion.model_source)} />
                     <EvidenceItem label="Model version" value={suggestion.model_version || 'Not available'} />
                     <EvidenceItem label="Created" value={formatDateTime(suggestion.created_at)} />
+                    {getExpiresAt(suggestion) ? (
+                      <EvidenceItem label="Expires" value={formatDateTime(getExpiresAt(suggestion))} />
+                    ) : null}
                     <EvidenceItem
                       label="Competitors captured"
                       value={`${suggestion.competitor_snapshot.available_count} available of ${suggestion.competitor_snapshot.count}`}
@@ -589,6 +596,19 @@ export default function PriceSuggestionDetail({
                       <div>
                         <h3 className="font-bold">Suggestion rejected</h3>
                         <p className="mt-1 text-sm">The product price was not changed and no price-history row was created.</p>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+
+                {suggestion.status === 'expired' ? (
+                  <section className="rounded-xl border border-slate-200 bg-slate-100 p-5 text-slate-800">
+                    <div className="flex gap-3">
+                      <Info className="mt-0.5 h-5 w-5 shrink-0" />
+                      <div>
+                        <h3 className="font-bold">Suggestion expired</h3>
+                        <p className="mt-1 text-sm">This saved suggestion is read-only and cannot receive a rationale, approval, or rejection.</p>
+                        {getExpiresAt(suggestion) ? <p className="mt-1 text-sm">Expired {formatDateTime(getExpiresAt(suggestion))}</p> : null}
                       </div>
                     </div>
                   </section>

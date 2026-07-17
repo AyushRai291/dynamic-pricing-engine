@@ -21,7 +21,7 @@ import {
 import PriceSuggestionDetail from '../components/PriceSuggestionDetail';
 import { formatInr } from '../utils/sales';
 
-type ReviewStatus = Exclude<PriceSuggestionStatus, 'expired'>;
+type ReviewStatus = PriceSuggestionStatus;
 
 type PriceSuggestionsPageProps = {
   accessToken: string;
@@ -35,6 +35,7 @@ const STATUS_TABS: Array<{ value: ReviewStatus; label: string }> = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
+  { value: 'expired', label: 'Expired' },
 ];
 
 function formatDateTime(value: string | null | undefined) {
@@ -54,6 +55,10 @@ function formatPercentage(value: number) {
 
 function humanize(value: string | null) {
   return value ? value.replaceAll('_', ' ') : 'Not available';
+}
+
+function getExpiresAt(suggestion: PriceSuggestion) {
+  return suggestion.expiresAt ?? suggestion.expires_at;
 }
 
 function StatusBadge({ status }: { status: PriceSuggestion['status'] }) {
@@ -235,7 +240,7 @@ export default function PriceSuggestionsPage({
             <h3 id="suggestions-list-title" className="font-bold text-slate-950">Suggestion queue</h3>
             <p className="mt-1 text-sm text-slate-500">Up to 20 most recent records for the selected status.</p>
           </div>
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Suggestion status">
+          <div className="grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex" role="tablist" aria-label="Suggestion status">
             {STATUS_TABS.map((tab) => (
               <button
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
@@ -343,6 +348,11 @@ export default function PriceSuggestionsPage({
                             {suggestion.approved_by ? <p className="max-w-40 truncate" title={suggestion.approved_by}>User {suggestion.approved_by}</p> : null}
                           </div>
                         ) : null}
+                        {getExpiresAt(suggestion) ? (
+                          <p className="mt-2 text-xs leading-5 text-slate-500">
+                            {suggestion.status === 'expired' ? 'Expired' : 'Expires'} {formatDateTime(getExpiresAt(suggestion))}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-5 py-4 text-right">
                         <button
@@ -401,6 +411,11 @@ export default function PriceSuggestionsPage({
                         <p className="mt-1">Reviewed {formatDateTime(suggestion.approved_at)}</p>
                         {suggestion.approved_by ? <p className="break-all">User {suggestion.approved_by}</p> : null}
                       </>
+                    ) : null}
+                    {getExpiresAt(suggestion) ? (
+                      <p className="mt-1">
+                        {suggestion.status === 'expired' ? 'Expired' : 'Expires'} {formatDateTime(getExpiresAt(suggestion))}
+                      </p>
                     ) : null}
                   </div>
                   <button

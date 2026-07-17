@@ -408,6 +408,7 @@ export type PriceSuggestion = {
   approved_by?: string | null;
   approved_at?: string | null;
   expires_at?: string | null;
+  expiresAt?: string | null;
 };
 
 export type PriceSuggestionsResponse = {
@@ -973,7 +974,7 @@ export async function createPriceSuggestion(
 
 export async function getPriceSuggestions(
   accessToken: string,
-  status: Exclude<PriceSuggestionStatus, 'expired'>,
+  status: PriceSuggestionStatus,
   limit = 20,
   signal?: AbortSignal
 ): Promise<PriceSuggestionsResponse> {

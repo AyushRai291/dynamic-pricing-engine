@@ -143,6 +143,11 @@ export const RATE_LIMIT_EXPENSIVE_MAX = parsePositiveInteger(
   'RATE_LIMIT_EXPENSIVE_MAX',
   { maximum: 100000 }
 );
+export const PRICE_SUGGESTION_TTL_HOURS = parsePositiveInteger(
+  process.env.PRICE_SUGGESTION_TTL_HOURS ?? 24,
+  'PRICE_SUGGESTION_TTL_HOURS',
+  { maximum: 720 }
+);
 export const QUEUE_REDIS_CONNECT_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_CONNECT_TIMEOUT_MS || 5000);
 export const QUEUE_REDIS_COMMAND_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_COMMAND_TIMEOUT_MS || 5000);
 export const SCRAPER_CRON_ENABLED = process.env.SCRAPER_CRON_ENABLED === 'true';

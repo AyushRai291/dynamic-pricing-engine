@@ -103,6 +103,7 @@ services:
       RATE_LIMIT_GENERAL_MAX: ${RATE_LIMIT_GENERAL_MAX:-120}
       RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-20}
       RATE_LIMIT_EXPENSIVE_MAX: ${RATE_LIMIT_EXPENSIVE_MAX:-10}
+      PRICE_SUGGESTION_TTL_HOURS: ${PRICE_SUGGESTION_TTL_HOURS:-24}
       QUEUE_REDIS_CONNECT_TIMEOUT_MS: ${QUEUE_REDIS_CONNECT_TIMEOUT_MS:-5000}
       QUEUE_REDIS_COMMAND_TIMEOUT_MS: ${QUEUE_REDIS_COMMAND_TIMEOUT_MS:-5000}
       SCRAPER_CRON_ENABLED: ${SCRAPER_CRON_ENABLED:-true}
@@ -137,7 +138,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "node", "--input-type=module", "-e", "const response = await fetch('http://127.0.0.1:5000/health'); if (!response.ok) process.exit(1)"]
+      test: ["CMD", "node", "--input-type=module", "-e", "const response = await fetch('http://127.0.0.1:5000/health/ready'); if (!response.ok) process.exit(1)"]
       interval: 15s
       timeout: 5s
       retries: 10

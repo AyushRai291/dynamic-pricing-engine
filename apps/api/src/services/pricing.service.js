@@ -1,4 +1,5 @@
 import { pool, query } from '../config/db.js';
+import { PRICE_SUGGESTION_TTL_HOURS } from '../config/env.js';
 import {
   calculateGuardedCandidate,
   calculatePercentageChange,
@@ -52,6 +53,7 @@ const PRICE_FEATURE_NAMES = [
 ];
 const VALID_ACTIONS = new Set(['decrease', 'hold', 'increase']);
 const VALID_GUARDRAILS = new Set(['min_price', 'max_price', 'cost_price']);
+const EXPIRED_DECISION = Symbol('expired-decision');
 
 function createError(message, statusCode) {
   const error = new Error(message);
@@ -151,6 +153,24 @@ function summarizeCompetitors(competitors) {
   };
 }
 
+function getSuggestionExpiresAt(row) {
+  if (row.expires_at !== null && row.expires_at !== undefined) {
+    return row.expires_at;
+  }
+
+  if (!['pending', 'expired'].includes(row.status)) return null;
+
+  const createdAt = new Date(row.created_at);
+
+  if (!Number.isFinite(createdAt.getTime())) {
+    throw new Error('Invalid suggestion created_at in stored pricing data');
+  }
+
+  return new Date(
+    createdAt.getTime() + PRICE_SUGGESTION_TTL_HOURS * 60 * 60 * 1000
+  ).toISOString();
+}
+
 function mapSuggestion(row, product = null) {
   const metadata = row.feature_vector && typeof row.feature_vector === 'object'
     ? row.feature_vector
@@ -202,7 +222,43 @@ function mapSuggestion(row, product = null) {
     }
   }
 
+  if (Object.hasOwn(row, 'expires_at')) {
+    suggestion.expiresAt = getSuggestionExpiresAt(row);
+  }
+
   return suggestion;
+}
+
+async function expireDuePriceSuggestions(queryFn, { id, productId } = {}) {
+  const params = [PRICE_SUGGESTION_TTL_HOURS];
+  const filters = [
+    "status = 'pending'",
+    `COALESCE(expires_at, created_at + ($1::int * INTERVAL '1 hour')) <= clock_timestamp()`,
+  ];
+
+  if (id !== undefined) {
+    params.push(id);
+    filters.push(`id = $${params.length}`);
+  }
+
+  if (productId !== undefined) {
+    params.push(productId);
+    filters.push(`product_id = $${params.length}`);
+  }
+
+  const result = await queryFn(
+    `UPDATE price_suggestions
+     SET status = 'expired',
+         expires_at = COALESCE(
+           expires_at,
+           created_at + ($1::int * INTERVAL '1 hour')
+         )
+     WHERE ${filters.join('\n       AND ')}
+     RETURNING id, status`,
+    params
+  );
+
+  return result.rows.some((row) => row.status === 'expired');
 }
 
 function moneyToCents(value, fieldName) {
@@ -532,6 +588,8 @@ export async function createPendingPriceSuggestion(
       throw createError('Active product not found', 404);
     }
 
+    await expireDuePriceSuggestions(client.query.bind(client), { productId });
+
     const pendingResult = await client.query(
       `SELECT id
        FROM price_suggestions
@@ -579,9 +637,18 @@ export async function createPendingPriceSuggestion(
          suggested_price,
          price_score,
          status,
-         feature_vector
+         feature_vector,
+         expires_at
        )
-       VALUES ($1, $2, $3, $4, 'pending', $5::jsonb)
+       VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         'pending',
+         $5::jsonb,
+         clock_timestamp() + ($6::int * INTERVAL '1 hour')
+       )
        RETURNING
          id,
          product_id,
@@ -589,6 +656,7 @@ export async function createPendingPriceSuggestion(
          suggested_price,
          price_score,
          status,
+         expires_at,
          feature_vector,
          ai_rationale,
          created_at`,
@@ -598,6 +666,7 @@ export async function createPendingPriceSuggestion(
         candidate.finalCandidate,
         score.price_score,
         featureVector,
+        PRICE_SUGGESTION_TTL_HOURS,
       ]
     );
 
@@ -623,12 +692,16 @@ export async function approvePriceSuggestion(
   reviewerId,
   { poolInstance = pool } = {}
 ) {
-  return runDecisionTransaction(poolInstance, async (client) => {
+  const result = await runDecisionTransaction(poolInstance, async (client) => {
     const queryFn = client.query.bind(client);
     const lockedSuggestion = await loadSuggestionForUpdate(id, queryFn);
 
     if (!lockedSuggestion) {
       throw createError('Price suggestion not found', 404);
+    }
+
+    if (await expireDuePriceSuggestions(queryFn, { id })) {
+      return EXPIRED_DECISION;
     }
 
     assertPendingSuggestion(lockedSuggestion);
@@ -651,14 +724,6 @@ export async function approvePriceSuggestion(
     const oldPrice = parseFiniteNumber(productRow.current_price, 'product current_price');
     const newPrice = parseFiniteNumber(lockedSuggestion.suggested_price, 'suggested_price');
 
-    await client.query(
-      `UPDATE products
-       SET current_price = $2,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [productRow.id, lockedSuggestion.suggested_price]
-    );
-
     const suggestionResult = await client.query(
       `UPDATE price_suggestions
        SET status = 'approved',
@@ -666,6 +731,10 @@ export async function approvePriceSuggestion(
            approved_at = NOW()
        WHERE id = $1
          AND status = 'pending'
+         AND COALESCE(
+           expires_at,
+           created_at + ($3::int * INTERVAL '1 hour')
+         ) > clock_timestamp()
        RETURNING
          id,
          product_id,
@@ -679,12 +748,24 @@ export async function approvePriceSuggestion(
          feature_vector,
          ai_rationale,
          created_at`,
-      [id, reviewerId]
+      [id, reviewerId, PRICE_SUGGESTION_TTL_HOURS]
     );
 
     if (!suggestionResult.rows[0]) {
+      if (await expireDuePriceSuggestions(queryFn, { id })) {
+        return EXPIRED_DECISION;
+      }
+
       throw createError('Price suggestion is no longer pending', 409);
     }
+
+    await client.query(
+      `UPDATE products
+       SET current_price = $2,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [productRow.id, lockedSuggestion.suggested_price]
+    );
 
     const historyResult = await client.query(
       `INSERT INTO price_history (
@@ -720,17 +801,28 @@ export async function approvePriceSuggestion(
       price_history: mapPriceHistory(historyResult.rows[0]),
     };
   });
+
+  if (result === EXPIRED_DECISION) {
+    throw createError('Price suggestion has expired', 409);
+  }
+
+  return result;
 }
 
 export async function rejectPriceSuggestion(
   id,
   { poolInstance = pool } = {}
 ) {
-  return runDecisionTransaction(poolInstance, async (client) => {
-    const lockedSuggestion = await loadSuggestionForUpdate(id, client.query.bind(client));
+  const result = await runDecisionTransaction(poolInstance, async (client) => {
+    const queryFn = client.query.bind(client);
+    const lockedSuggestion = await loadSuggestionForUpdate(id, queryFn);
 
     if (!lockedSuggestion) {
       throw createError('Price suggestion not found', 404);
+    }
+
+    if (await expireDuePriceSuggestions(queryFn, { id })) {
+      return EXPIRED_DECISION;
     }
 
     assertPendingSuggestion(lockedSuggestion);
@@ -740,6 +832,10 @@ export async function rejectPriceSuggestion(
        SET status = 'rejected'
        WHERE id = $1
          AND status = 'pending'
+         AND COALESCE(
+           expires_at,
+           created_at + ($2::int * INTERVAL '1 hour')
+         ) > clock_timestamp()
        RETURNING
          id,
          product_id,
@@ -753,21 +849,33 @@ export async function rejectPriceSuggestion(
          feature_vector,
          ai_rationale,
          created_at`,
-      [id]
+      [id, PRICE_SUGGESTION_TTL_HOURS]
     );
 
     if (!suggestionResult.rows[0]) {
+      if (await expireDuePriceSuggestions(queryFn, { id })) {
+        return EXPIRED_DECISION;
+      }
+
       throw createError('Price suggestion is no longer pending', 409);
     }
 
     return mapSuggestion({ ...lockedSuggestion, ...suggestionResult.rows[0] });
   });
+
+  if (result === EXPIRED_DECISION) {
+    throw createError('Price suggestion has expired', 409);
+  }
+
+  return result;
 }
 
 export async function listPriceSuggestions(
   { status, limit },
   { queryFn = query } = {}
 ) {
+  await expireDuePriceSuggestions(queryFn);
+
   const result = await queryFn(
     `SELECT ${SUGGESTION_SELECT_COLUMNS}
      FROM price_suggestions ps
@@ -849,6 +957,8 @@ export async function listGlobalPriceHistory(
 }
 
 export async function getPriceSuggestionById(id, { queryFn = query } = {}) {
+  await expireDuePriceSuggestions(queryFn, { id });
+
   const result = await queryFn(
     `SELECT ${SUGGESTION_SELECT_COLUMNS}
      FROM price_suggestions ps
@@ -871,6 +981,10 @@ export async function generatePriceSuggestionRationale(
     generateRationaleFn = generateGeminiPricingRationale,
   } = {}
 ) {
+  if (await expireDuePriceSuggestions(queryFn, { id })) {
+    throw createError('Price suggestion has expired', 409);
+  }
+
   const snapshotResult = await queryFn(
     `SELECT ${SUGGESTION_SELECT_COLUMNS}
      FROM price_suggestions ps
@@ -891,6 +1005,10 @@ export async function generatePriceSuggestionRationale(
   const existingRationale = parseStoredRationale(row.ai_rationale);
 
   if (existingRationale) {
+    if (await expireDuePriceSuggestions(queryFn, { id })) {
+      throw createError('Price suggestion has expired', 409);
+    }
+
     return {
       generated: false,
       suggestionId: id,
@@ -906,8 +1024,12 @@ export async function generatePriceSuggestionRationale(
      WHERE id = $1
        AND status = 'pending'
        AND ai_rationale IS NULL
+       AND COALESCE(
+         expires_at,
+         created_at + ($3::int * INTERVAL '1 hour')
+       ) > clock_timestamp()
      RETURNING ai_rationale`,
-    [id, serializedRationale]
+    [id, serializedRationale, PRICE_SUGGESTION_TTL_HOURS]
   );
 
   if (updateResult.rows[0]) {
@@ -918,6 +1040,10 @@ export async function generatePriceSuggestionRationale(
         updateResult.rows[0].ai_rationale ?? serializedRationale
       ),
     };
+  }
+
+  if (await expireDuePriceSuggestions(queryFn, { id })) {
+    throw createError('Price suggestion has expired', 409);
   }
 
   const currentResult = await queryFn(

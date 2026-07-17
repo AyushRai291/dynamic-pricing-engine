@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.10.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Run API tests
+        run: pnpm --filter @dpe/api test
+
+      - name: Check API JavaScript syntax
+        run: find apps/api/src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Check Express app import
+        run: >-
+          node --input-type=module --eval
+          "process.env.JWT_ACCESS_SECRET='ci-validation-only';
+          process.env.JWT_REFRESH_SECRET='ci-validation-only';
+          const { default: app } = await import('./apps/api/src/app.js');
+          if (typeof app !== 'function') throw new Error('Invalid Express app export');"
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.10.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Type-check web app
+        run: pnpm --filter @dpe/web exec tsc --noEmit
+
+      - name: Build web app
+        run: pnpm --filter @dpe/web build
+
+  ml:
+    name: ML service
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: apps/ml-service/requirements.txt
+
+      - name: Install ML dependencies
+        run: python -m pip install -r apps/ml-service/requirements.txt
+
+      - name: Check installed Python dependencies
+        run: python -m pip check
+
+      - name: Compile Python sources
+        run: python -m compileall -q app scripts tests
+        working-directory: apps/ml-service
+
+      # All repository tests use in-memory fixtures or tracked model artifacts.
+      # Ignored raw/processed M5 datasets are intentionally not downloaded or required.
+      - name: Run clean-clone-safe ML tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+        working-directory: apps/ml-service

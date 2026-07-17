@@ -1,10 +1,18 @@
-export function requestLoggerMiddleware(req, res, next) {
-  const startedAt = Date.now();
+export function createRequestLogger({ log = console.log, now = Date.now } = {}) {
+  return function requestLogger(req, res, next) {
+    const startedAt = now();
+    const requestPath = req.originalUrl.split('?')[0];
 
-  res.on('finish', () => {
-    const durationMs = Date.now() - startedAt;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs}ms`);
-  });
+    res.on('finish', () => {
+      const durationMs = now() - startedAt;
+      log(
+        `requestId=${req.requestId} method=${req.method} path=${requestPath} `
+        + `status=${res.statusCode} durationMs=${durationMs}`
+      );
+    });
 
-  next();
+    next();
+  };
 }
+
+export const requestLoggerMiddleware = createRequestLogger();

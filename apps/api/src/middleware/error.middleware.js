@@ -9,6 +9,7 @@ export function errorMiddleware(err, req, res, next) {
       error: {
         message: 'Invalid JSON body',
         statusCode: 400,
+        requestId: req.requestId,
       },
     });
   }
@@ -17,6 +18,7 @@ export function errorMiddleware(err, req, res, next) {
     error: {
       message: message || 'Internal Server Error',
       statusCode,
+      requestId: req.requestId,
     },
   });
 }

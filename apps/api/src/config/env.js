@@ -20,6 +20,16 @@ function parsePositiveInteger(value, name, { maximum = Number.MAX_SAFE_INTEGER }
   return parsed;
 }
 
+function parseNonNegativeInteger(value, name, { maximum = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximum) {
+    throw new Error(`${name} must be an integer between 0 and ${maximum}.`);
+  }
+
+  return parsed;
+}
+
 function parseNonEmptyString(value, name) {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${name} must be a non-empty string.`);
@@ -51,6 +61,31 @@ export const JWT_REFRESH_SECRET = requireEnv('JWT_REFRESH_SECRET');
 export const JWT_ACCESS_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN || '15m';
 export const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 export const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+export const TRUST_PROXY = parseNonNegativeInteger(
+  process.env.TRUST_PROXY ?? 0,
+  'TRUST_PROXY',
+  { maximum: 10 }
+);
+export const RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
+  process.env.RATE_LIMIT_WINDOW_MS ?? 60000,
+  'RATE_LIMIT_WINDOW_MS',
+  { maximum: 3600000 }
+);
+export const RATE_LIMIT_GENERAL_MAX = parsePositiveInteger(
+  process.env.RATE_LIMIT_GENERAL_MAX ?? 120,
+  'RATE_LIMIT_GENERAL_MAX',
+  { maximum: 100000 }
+);
+export const RATE_LIMIT_AUTH_MAX = parsePositiveInteger(
+  process.env.RATE_LIMIT_AUTH_MAX ?? 20,
+  'RATE_LIMIT_AUTH_MAX',
+  { maximum: 100000 }
+);
+export const RATE_LIMIT_EXPENSIVE_MAX = parsePositiveInteger(
+  process.env.RATE_LIMIT_EXPENSIVE_MAX ?? 10,
+  'RATE_LIMIT_EXPENSIVE_MAX',
+  { maximum: 100000 }
+);
 export const QUEUE_REDIS_CONNECT_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_CONNECT_TIMEOUT_MS || 5000);
 export const QUEUE_REDIS_COMMAND_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_COMMAND_TIMEOUT_MS || 5000);
 export const SCRAPER_CRON_ENABLED = process.env.SCRAPER_CRON_ENABLED === 'true';

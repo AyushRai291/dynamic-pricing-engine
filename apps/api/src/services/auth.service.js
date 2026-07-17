@@ -4,6 +4,7 @@ import { query } from '../config/db.js';
 import { generateTokens } from '../utils/jwt.js';
 
 const SALT_ROUNDS = 10;
+const PUBLIC_REGISTRATION_ROLE = 'viewer';
 
 function createError(message, statusCode) {
   const error = new Error(message);
@@ -41,10 +42,10 @@ export async function createUser({ name, email, password }) {
 
   try {
     const result = await query(
-      `INSERT INTO users (name, email, password_hash)
-       VALUES ($1, $2, $3)
+      `INSERT INTO users (name, email, password_hash, role)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, name, email, role, is_active, created_at, updated_at`,
-      [normalizedName, normalizedEmail, passwordHash]
+      [normalizedName, normalizedEmail, passwordHash, PUBLIC_REGISTRATION_ROLE]
     );
 
     const user = result.rows[0];

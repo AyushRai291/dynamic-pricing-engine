@@ -174,6 +174,38 @@ export type ScraperStatusResponse = {
   scheduler: SchedulerStatus;
 };
 
+export type ApiHealthResponse = {
+  status: string;
+  service: string;
+};
+
+export type PricingStatusResponse = {
+  status: string;
+  ml_service: {
+    status: string;
+    service: string;
+    version: string;
+  };
+};
+
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type AdminUsersResponse = {
+  items: AdminUser[];
+  pagination: ProductsResponse['pagination'];
+};
+
+export type AdminUserResponse = {
+  user: AdminUser;
+};
+
 export type ScrapeJobSummary = {
   id: string;
   name: string;
@@ -700,6 +732,51 @@ export async function getScraperStatus(accessToken: string): Promise<ScraperStat
   const response = await authenticatedFetch('/api/scraper/status', accessToken);
 
   return parseResponse<ScraperStatusResponse>(response);
+}
+
+export async function getApiHealth(): Promise<ApiHealthResponse> {
+  const response = await fetch(`${API_BASE_URL}/health`);
+  return parseResponse<ApiHealthResponse>(response);
+}
+
+export async function getPricingStatus(accessToken: string): Promise<PricingStatusResponse> {
+  const response = await authenticatedFetch('/api/pricing/status', accessToken);
+  return parseResponse<PricingStatusResponse>(response);
+}
+
+export async function getAdminUsers(
+  accessToken: string,
+  params: { page?: number; limit?: number; role?: UserRole } = {},
+  signal?: AbortSignal
+): Promise<AdminUsersResponse> {
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', String(params.page));
+  if (params.limit) query.set('limit', String(params.limit));
+  if (params.role) query.set('role', params.role);
+  const queryString = query.toString();
+  const response = await authenticatedFetch(
+    `/api/admin/users${queryString ? `?${queryString}` : ''}`,
+    accessToken,
+    { signal }
+  );
+  return parseResponse<AdminUsersResponse>(response);
+}
+
+export async function updateAdminUserRole(
+  accessToken: string,
+  userId: string,
+  role: UserRole
+): Promise<AdminUserResponse> {
+  const response = await authenticatedFetch(
+    `/api/admin/users/${encodeURIComponent(userId)}/role`,
+    accessToken,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    }
+  );
+  return parseResponse<AdminUserResponse>(response);
 }
 
 export async function triggerTargetScrape(

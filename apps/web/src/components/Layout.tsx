@@ -24,6 +24,7 @@ export type WorkspaceView =
   | 'scraper-queue'
   | 'competitor-intelligence'
   | 'analytics'
+  | 'settings'
   | 'price-suggestions';
 
 type LayoutProps = {
@@ -47,10 +48,7 @@ const navItems = [
   { label: 'Price Suggestions', icon: Sparkles, view: 'price-suggestions' as const },
   { label: 'Competitor Intelligence', icon: Radar, view: 'competitor-intelligence' as const },
   { label: 'Analytics', icon: BarChart3, view: 'analytics' as const },
-];
-
-const futureItems = [
-  { label: 'Settings', icon: Settings },
+  { label: 'Settings', icon: Settings, view: 'settings' as const },
 ];
 
 function QueueIndicator({ state }: { state: QueueIndicatorState }) {
@@ -146,38 +144,6 @@ function Sidebar({
           );
         })}
 
-        <div className="pt-4">
-          {!collapsed || isMobile ? (
-            <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Roadmap
-            </p>
-          ) : null}
-          <div className="space-y-1">
-            {futureItems.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <button
-                  className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-500"
-                  type="button"
-                  key={item.label}
-                  disabled
-                  aria-disabled="true"
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  {!collapsed || isMobile ? (
-                    <>
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                      <span className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
-                        Soon
-                      </span>
-                    </>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </nav>
     </aside>
   );
@@ -260,6 +226,7 @@ export default function Layout({
                       'scraper-queue': 'Queue workspace',
                       'competitor-intelligence': 'Market workspace',
                       analytics: 'Recorded data workspace',
+                      settings: 'Account and system workspace',
                       'price-suggestions': 'Review workspace',
                     }[activeView]}
                   </p>
@@ -270,6 +237,7 @@ export default function Layout({
                       'scraper-queue': 'Scraper Queue',
                       'competitor-intelligence': 'Competitor Intelligence',
                       analytics: 'Analytics',
+                      settings: 'Settings',
                       'price-suggestions': 'Price Suggestions',
                     }[activeView]}
                   </h1>

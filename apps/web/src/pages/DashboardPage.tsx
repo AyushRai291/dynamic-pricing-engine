@@ -30,6 +30,7 @@ import AnalyticsPage from './AnalyticsPage';
 import CompetitorIntelligencePage from './CompetitorIntelligencePage';
 import ProductsPage from './ProductsPage';
 import ScraperQueuePage from './ScraperQueuePage';
+import SettingsPage from './SettingsPage';
 
 type DashboardPageProps = {
   accessToken: string;
@@ -357,6 +358,8 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
         />
       ) : activeView === 'analytics' ? (
         <AnalyticsPage accessToken={accessToken} onUnauthorized={onLogout} />
+      ) : activeView === 'settings' ? (
+        <SettingsPage accessToken={accessToken} user={user} onUnauthorized={onLogout} />
       ) : (
         <PriceSuggestionsPage
           accessToken={accessToken}

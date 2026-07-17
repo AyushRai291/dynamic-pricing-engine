@@ -7,6 +7,7 @@ import { notFoundMiddleware } from './middleware/notFound.middleware.js';
 import { authRateLimiter, generalApiRateLimiter } from './middleware/rateLimit.middleware.js';
 import { requestIdMiddleware } from './middleware/requestId.middleware.js';
 import { requestLoggerMiddleware } from './middleware/requestLogger.middleware.js';
+import adminRoutes from './routes/admin.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import competitorTargetRoutes from './routes/competitorTarget.routes.js';
@@ -25,6 +26,7 @@ app.use(requestLoggerMiddleware);
 
 app.use('/health', healthRoutes);
 app.use('/api', generalApiRateLimiter);
+app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/auth', authRateLimiter, authRoutes);
 app.use('/api/competitor-targets', competitorTargetRoutes);

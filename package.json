@@ -7,7 +7,12 @@
     "dev": "echo Run apps separately for now",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f"
+    "db:logs": "docker compose logs -f",
+    "prod:config": "docker compose --env-file .env.production -f compose.production.yml config",
+    "prod:build": "docker compose --env-file .env.production -f compose.production.yml build",
+    "prod:up": "docker compose --env-file .env.production -f compose.production.yml up -d --wait",
+    "prod:down": "docker compose --env-file .env.production -f compose.production.yml down",
+    "prod:logs": "docker compose --env-file .env.production -f compose.production.yml logs -f"
   },
   "packageManager": "pnpm@11.10.0"
 }

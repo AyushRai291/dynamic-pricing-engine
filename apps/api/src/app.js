@@ -1,7 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 
-import { TRUST_PROXY } from './config/env.js';
+import { CORS_ALLOWED_ORIGINS, TRUST_PROXY } from './config/env.js';
 import { errorMiddleware } from './middleware/error.middleware.js';
 import { notFoundMiddleware } from './middleware/notFound.middleware.js';
 import { authRateLimiter, generalApiRateLimiter } from './middleware/rateLimit.middleware.js';
@@ -18,9 +18,20 @@ import scraperRoutes from './routes/scraper.routes.js';
 
 const app = express();
 
+function corsOrigin(origin, callback) {
+  if (!origin || CORS_ALLOWED_ORIGINS.includes(origin)) {
+    callback(null, true);
+    return;
+  }
+
+  const error = new Error('Origin is not allowed');
+  error.statusCode = 403;
+  callback(error);
+}
+
 app.set('trust proxy', TRUST_PROXY);
 app.use(requestIdMiddleware);
-app.use(cors());
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 app.use(requestLoggerMiddleware);
 

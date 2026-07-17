@@ -4,6 +4,7 @@ import puppeteer from 'puppeteer';
 
 import { query } from '../config/db.js';
 import {
+  SCRAPER_DISABLE_CHROMIUM_SANDBOX,
   SCRAPER_MAX_HTML_BYTES,
   SCRAPER_MAX_REDIRECTS,
 } from '../config/env.js';
@@ -46,7 +47,12 @@ export async function fetchHtmlWithPuppeteer(
 
   try {
     await validateLiveUrlFn(url);
-    browser = await puppeteerImpl.launch({ headless: true });
+    browser = await puppeteerImpl.launch({
+      headless: true,
+      ...(SCRAPER_DISABLE_CHROMIUM_SANDBOX
+        ? { args: ['--no-sandbox', '--disable-setuid-sandbox'] }
+        : {}),
+    });
     page = await browser.newPage();
     await page.setRequestInterception(true);
     page.on('request', async (request) => {

@@ -1,0 +1,30 @@
+FROM python:3.10-slim-bookworm AS dependencies
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+RUN python -m venv /opt/venv
+COPY apps/ml-service/requirements.txt /tmp/requirements.txt
+RUN pip install --requirement /tmp/requirements.txt \
+    && pip check
+
+FROM python:3.10-slim-bookworm AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app
+
+WORKDIR /app
+COPY --from=dependencies /opt/venv /opt/venv
+COPY --chown=app:app apps/ml-service/app ./app
+COPY --chown=app:app apps/ml-service/models ./models
+
+USER app
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

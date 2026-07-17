@@ -5,6 +5,7 @@ import {
   generatePriceSuggestionRationale,
   getPriceSuggestionById,
   listPriceSuggestions,
+  listGlobalPriceHistory,
   rejectPriceSuggestion,
   scoreProductPricing,
 } from '../services/pricing.service.js';
@@ -14,6 +15,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 const SUGGESTION_STATUSES = new Set(['pending', 'approved', 'rejected', 'expired']);
 const DEFAULT_SUGGESTION_LIMIT = 20;
 const MAX_SUGGESTION_LIMIT = 100;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function createError(message, statusCode) {
   const error = new Error(message);
@@ -22,7 +24,7 @@ function createError(message, statusCode) {
 }
 
 export function validatePricingUuid(id, entityName) {
-  if (!UUID_REGEX.test(id)) {
+  if (typeof id !== 'string' || !UUID_REGEX.test(id)) {
     throw createError(`Invalid ${entityName} id`, 400);
   }
 
@@ -73,6 +75,51 @@ export function parseSuggestionListQuery(query) {
   return { status, limit };
 }
 
+function parseOptionalDate(value, fieldName) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !DATE_REGEX.test(value)) {
+    throw createError(`${fieldName} must use YYYY-MM-DD`, 400);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    throw createError(`${fieldName} must be a valid date`, 400);
+  }
+  return value;
+}
+
+export function parsePriceHistoryQuery(query = {}) {
+  const allowedFields = ['productId', 'from', 'to', 'page', 'limit'];
+  const invalidField = Object.keys(query).find((field) => !allowedFields.includes(field));
+  if (invalidField) throw createError(`Invalid query field: ${invalidField}`, 400);
+
+  const productId = query.productId === undefined
+    ? undefined
+    : validatePricingUuid(query.productId, 'product');
+  const from = parseOptionalDate(query.from, 'from');
+  const to = parseOptionalDate(query.to, 'to');
+  if (from && to && from > to) throw createError('from must be on or before to', 400);
+
+  function parsePageValue(value, fieldName, defaultValue, maximum) {
+    if (value === undefined) return defaultValue;
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+      throw createError(`${fieldName} must be an integer between 1 and ${maximum}`, 400);
+    }
+    const parsed = Number(value);
+    if (parsed < 1 || parsed > maximum) {
+      throw createError(`${fieldName} must be an integer between 1 and ${maximum}`, 400);
+    }
+    return parsed;
+  }
+
+  return {
+    productId,
+    from,
+    to,
+    page: parsePageValue(query.page, 'page', 1, Number.MAX_SAFE_INTEGER),
+    limit: parsePageValue(query.limit, 'limit', 20, 100),
+  };
+}
+
 export const getPricingStatus = asyncHandler(async (req, res) => {
   const mlHealth = await getMlHealth();
 
@@ -105,6 +152,13 @@ export function createListSuggestionsHandler({ listFn = listPriceSuggestions } =
     const filters = parseSuggestionListQuery(req.query);
     const result = await listFn(filters);
 
+    res.status(200).json(result);
+  });
+}
+
+export function createListPriceHistoryHandler({ listFn = listGlobalPriceHistory } = {}) {
+  return asyncHandler(async (req, res) => {
+    const result = await listFn(parsePriceHistoryQuery(req.query));
     res.status(200).json(result);
   });
 }
@@ -152,6 +206,7 @@ export function createRejectSuggestionHandler({ rejectFn = rejectPriceSuggestion
 
 export const createProductSuggestion = createProductSuggestionHandler();
 export const listSuggestions = createListSuggestionsHandler();
+export const listPriceHistory = createListPriceHistoryHandler();
 export const getSuggestion = createGetSuggestionHandler();
 export const generateSuggestionRationale = createGenerateSuggestionRationaleHandler();
 export const approveSuggestion = createApproveSuggestionHandler();

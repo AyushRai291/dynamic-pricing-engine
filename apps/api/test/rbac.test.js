@@ -17,6 +17,7 @@ const {
   requireManagerOrAdmin,
 } = await import('../src/middleware/role.middleware.js');
 const { default: authRoutes } = await import('../src/routes/auth.routes.js');
+const { default: analyticsRoutes } = await import('../src/routes/analytics.routes.js');
 const { default: competitorTargetRoutes } = await import('../src/routes/competitorTarget.routes.js');
 const { default: pricingRoutes } = await import('../src/routes/pricing.routes.js');
 const { default: productRoutes } = await import('../src/routes/product.routes.js');
@@ -270,7 +271,7 @@ test('every operational mutation is wired after auth with the manager/admin guar
     );
   }
 
-  for (const router of [productRoutes, scraperRoutes, pricingRoutes, competitorTargetRoutes]) {
+  for (const router of [productRoutes, scraperRoutes, pricingRoutes, competitorTargetRoutes, analyticsRoutes]) {
     const authIndex = router.stack.findIndex((layer) => layer.handle === authMiddleware);
     assert.ok(authIndex >= 0, 'router is missing authentication');
     const getRoutes = router.stack.filter((layer) => layer.route?.methods.get);

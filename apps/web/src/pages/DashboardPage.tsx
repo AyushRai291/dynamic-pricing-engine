@@ -26,6 +26,7 @@ import ProductTable from '../components/ProductTable';
 import QueueStatusPanel from '../components/QueueStatusPanel';
 import SalesHistoryDialog from '../components/SalesHistoryDialog';
 import PriceSuggestionsPage from './PriceSuggestionsPage';
+import AnalyticsPage from './AnalyticsPage';
 import CompetitorIntelligencePage from './CompetitorIntelligencePage';
 import ProductsPage from './ProductsPage';
 import ScraperQueuePage from './ScraperQueuePage';
@@ -354,6 +355,8 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
           onOpenProductTargets={setSelectedCompetitorProduct}
           onUnauthorized={onLogout}
         />
+      ) : activeView === 'analytics' ? (
+        <AnalyticsPage accessToken={accessToken} onUnauthorized={onLogout} />
       ) : (
         <PriceSuggestionsPage
           accessToken={accessToken}

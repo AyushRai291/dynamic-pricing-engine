@@ -23,6 +23,7 @@ export type WorkspaceView =
   | 'products'
   | 'scraper-queue'
   | 'competitor-intelligence'
+  | 'analytics'
   | 'price-suggestions';
 
 type LayoutProps = {
@@ -45,10 +46,10 @@ const navItems = [
   { label: 'Scraper Queue', icon: TimerReset, view: 'scraper-queue' as const },
   { label: 'Price Suggestions', icon: Sparkles, view: 'price-suggestions' as const },
   { label: 'Competitor Intelligence', icon: Radar, view: 'competitor-intelligence' as const },
+  { label: 'Analytics', icon: BarChart3, view: 'analytics' as const },
 ];
 
 const futureItems = [
-  { label: 'Analytics', icon: BarChart3 },
   { label: 'Settings', icon: Settings },
 ];
 
@@ -258,6 +259,7 @@ export default function Layout({
                       products: 'Product workspace',
                       'scraper-queue': 'Queue workspace',
                       'competitor-intelligence': 'Market workspace',
+                      analytics: 'Recorded data workspace',
                       'price-suggestions': 'Review workspace',
                     }[activeView]}
                   </p>
@@ -267,6 +269,7 @@ export default function Layout({
                       products: 'Products',
                       'scraper-queue': 'Scraper Queue',
                       'competitor-intelligence': 'Competitor Intelligence',
+                      analytics: 'Analytics',
                       'price-suggestions': 'Price Suggestions',
                     }[activeView]}
                   </h1>

@@ -784,6 +784,70 @@ export async function listPriceSuggestions(
   };
 }
 
+export async function listGlobalPriceHistory(
+  { productId, from, to, page, limit },
+  { queryFn = query } = {}
+) {
+  const where = [];
+  const params = [];
+
+  if (productId !== undefined) {
+    params.push(productId);
+    where.push(`ph.product_id = $${params.length}`);
+  }
+  if (from !== undefined) {
+    params.push(from);
+    where.push(`ph.created_at >= $${params.length}::date`);
+  }
+  if (to !== undefined) {
+    params.push(to);
+    where.push(`ph.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const countResult = await queryFn(
+    `SELECT COUNT(*)::int AS total
+     FROM price_history ph
+     ${whereSql}`,
+    params
+  );
+  const total = Number(countResult.rows[0]?.total) || 0;
+  const offset = (page - 1) * limit;
+  const itemParams = [...params, limit, offset];
+  const result = await queryFn(
+    `SELECT
+       ph.id,
+       ph.product_id AS "productId",
+       p.name AS "productName",
+       p.sku AS "productSku",
+       ph.old_price::text AS "oldPrice",
+       ph.new_price::text AS "newPrice",
+       CASE
+         WHEN ph.old_price = 0 THEN NULL
+         ELSE ROUND(((ph.new_price - ph.old_price) / ph.old_price) * 100, 2)::text
+       END AS "percentageChange",
+       CASE
+         WHEN ph.suggestion_id IS NOT NULL THEN 'price_suggestion'
+         ELSE 'price_history'
+       END AS source,
+       ph.change_reason AS "changeReason",
+       ph.suggestion_id AS "suggestionId",
+       ph.created_at AS "changedAt"
+     FROM price_history ph
+     JOIN products p ON p.id = ph.product_id
+     ${whereSql}
+     ORDER BY ph.created_at DESC, ph.id DESC
+     LIMIT $${itemParams.length - 1}
+     OFFSET $${itemParams.length}`,
+    itemParams
+  );
+
+  return {
+    items: result.rows,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+}
+
 export async function getPriceSuggestionById(id, { queryFn = query } = {}) {
   const result = await queryFn(
     `SELECT ${SUGGESTION_SELECT_COLUMNS}

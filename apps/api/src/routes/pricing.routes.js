@@ -7,6 +7,7 @@ import {
   getPricingStatus,
   getSuggestion,
   listSuggestions,
+  listPriceHistory,
   rejectSuggestion,
   scoreProduct,
 } from '../controllers/pricing.controller.js';
@@ -19,6 +20,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/status', getPricingStatus);
+router.get('/history', listPriceHistory);
 router.post('/score/:productId', requireManagerOrAdmin, scoreProduct);
 router.post(
   '/products/:id/suggestions',

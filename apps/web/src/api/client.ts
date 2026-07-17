@@ -415,6 +415,42 @@ export type ApprovePriceSuggestionResponse = {
   price_history: PriceHistoryAudit;
 };
 
+export type AnalyticsOverviewResponse = {
+  range: { from: string; to: string };
+  metrics: {
+    activeProductCount: number;
+    recordedUnitsSold: number;
+    recordedRevenue: string;
+    recordedSalesDays: number;
+    approvedPriceChangeCount: number;
+  };
+  suggestionCounts: Record<'pending' | 'approved' | 'rejected' | 'expired', number>;
+  dailySeries: Array<{
+    date: string;
+    unitsSold: number;
+    revenue: string;
+  }>;
+};
+
+export type GlobalPriceHistoryItem = {
+  id: string;
+  productId: string;
+  productName: string;
+  productSku: string;
+  oldPrice: string;
+  newPrice: string;
+  percentageChange: string | null;
+  source: 'price_suggestion' | 'price_history';
+  changeReason: string;
+  suggestionId: string | null;
+  changedAt: string;
+};
+
+export type GlobalPriceHistoryResponse = {
+  items: GlobalPriceHistoryItem[];
+  pagination: ProductsResponse['pagination'];
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => null) as unknown;
 
@@ -622,6 +658,42 @@ export async function getProduct(
   );
 
   return parseResponse<ProductResponse>(response);
+}
+
+export async function getAnalyticsOverview(
+  accessToken: string,
+  range: { from: string; to: string },
+  signal?: AbortSignal
+): Promise<AnalyticsOverviewResponse> {
+  const query = new URLSearchParams(range);
+  const response = await authenticatedFetch(
+    `/api/analytics/overview?${query.toString()}`,
+    accessToken,
+    { signal }
+  );
+
+  return parseResponse<AnalyticsOverviewResponse>(response);
+}
+
+export async function getGlobalPriceHistory(
+  accessToken: string,
+  params: { productId?: string; from?: string; to?: string; page?: number; limit?: number } = {},
+  signal?: AbortSignal
+): Promise<GlobalPriceHistoryResponse> {
+  const query = new URLSearchParams();
+  if (params.productId) query.set('productId', params.productId);
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.page) query.set('page', String(params.page));
+  if (params.limit) query.set('limit', String(params.limit));
+  const queryString = query.toString();
+  const response = await authenticatedFetch(
+    `/api/pricing/history${queryString ? `?${queryString}` : ''}`,
+    accessToken,
+    { signal }
+  );
+
+  return parseResponse<GlobalPriceHistoryResponse>(response);
 }
 
 export async function getScraperStatus(accessToken: string): Promise<ScraperStatusResponse> {

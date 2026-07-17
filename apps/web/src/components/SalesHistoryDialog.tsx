@@ -26,6 +26,7 @@ type SalesHistoryDialogProps = {
   product: Product | null;
   isOpen: boolean;
   accessToken: string;
+  canManage: boolean;
   onClose: () => void;
   onUnauthorized: () => void;
 };
@@ -70,6 +71,7 @@ export default function SalesHistoryDialog({
   product,
   isOpen,
   accessToken,
+  canManage,
   onClose,
   onUnauthorized,
 }: SalesHistoryDialogProps) {
@@ -219,6 +221,10 @@ export default function SalesHistoryDialog({
   }
 
   async function handleSaveRecords(recordsToSave: BulkProductSalesRecord[]) {
+    if (!canManage) {
+      throw new Error('Manager or admin access is required to add sales records.');
+    }
+
     setSuccessMessage('');
 
     try {
@@ -313,33 +319,37 @@ export default function SalesHistoryDialog({
               onReset={handleResetFilters}
             />
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Daily sales entry</p>
-                <p className="mt-1 text-sm text-slate-500">Record real sold units and the actual selling price.</p>
-              </div>
-              {!isEntryOpen ? (
-                <button
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-700 focus:ring-offset-2"
-                  type="button"
-                  onClick={() => {
-                    setIsEntryOpen(true);
-                    setSuccessMessage('');
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add daily sales
-                </button>
-              ) : null}
-            </div>
+            {canManage ? (
+              <>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Daily sales entry</p>
+                    <p className="mt-1 text-sm text-slate-500">Record real sold units and the actual selling price.</p>
+                  </div>
+                  {!isEntryOpen ? (
+                    <button
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-700 focus:ring-offset-2"
+                      type="button"
+                      onClick={() => {
+                        setIsEntryOpen(true);
+                        setSuccessMessage('');
+                      }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add daily sales
+                    </button>
+                  ) : null}
+                </div>
 
-            {isEntryOpen ? (
-              <BulkSalesEntryForm
-                onSave={handleSaveRecords}
-                onSaved={handleRecordsSaved}
-                onCancel={() => setIsEntryOpen(false)}
-                onSavingChange={setIsSaving}
-              />
+                {isEntryOpen ? (
+                  <BulkSalesEntryForm
+                    onSave={handleSaveRecords}
+                    onSaved={handleRecordsSaved}
+                    onCancel={() => setIsEntryOpen(false)}
+                    onSavingChange={setIsSaving}
+                  />
+                ) : null}
+              </>
             ) : null}
 
             {isLoading ? <LoadingSkeleton /> : null}
@@ -375,7 +385,9 @@ export default function SalesHistoryDialog({
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
                   {hasAppliedFilters
                     ? 'Reset the filters or choose another period. No missing dates are inferred.'
-                    : 'Add the first real daily sales record for this product. Zero-sales days are valid.'}
+                    : canManage
+                      ? 'Add the first real daily sales record for this product. Zero-sales days are valid.'
+                      : 'No sales records are available for this product yet.'}
                 </p>
               </div>
             ) : null}

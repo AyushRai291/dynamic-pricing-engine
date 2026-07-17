@@ -1,4 +1,67 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const ACCESS_TOKEN_STORAGE_KEY = 'dpe_access_token';
+const REFRESH_TOKEN_STORAGE_KEY = 'dpe_refresh_token';
+
+export type UserRole = 'viewer' | 'manager' | 'admin';
+
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AuthSession = {
+  accessToken: string | null;
+  refreshToken: string | null;
+};
+
+let authSession: AuthSession = {
+  accessToken: localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
+  refreshToken: localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY),
+};
+const authSessionListeners = new Set<() => void>();
+let refreshPromise: Promise<string | null> | null = null;
+
+function publishAuthSession(nextSession: AuthSession) {
+  authSession = nextSession;
+  authSessionListeners.forEach((listener) => listener());
+}
+
+export function getAuthSession() {
+  return authSession;
+}
+
+export function subscribeAuthSession(listener: () => void) {
+  authSessionListeners.add(listener);
+  return () => authSessionListeners.delete(listener);
+}
+
+export function saveAuthSession(accessToken: string, refreshToken: string) {
+  localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+  localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
+  publishAuthSession({ accessToken, refreshToken });
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  publishAuthSession({ accessToken: null, refreshToken: null });
+}
+
+function clearRefreshSession(refreshToken: string) {
+  if (authSession.refreshToken === refreshToken) {
+    clearAuthSession();
+  }
+}
+
+function saveRefreshedAccessToken(accessToken: string) {
+  localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+  publishAuthSession({ ...authSession, accessToken });
+}
 
 export class ApiError extends Error {
   statusCode: number;
@@ -10,16 +73,20 @@ export class ApiError extends Error {
   }
 }
 
-export type LoginResponse = {
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-    is_active: boolean;
-  };
+export type AuthResponse = {
+  user: AuthUser;
   accessToken: string;
   refreshToken: string;
+};
+
+export type LoginResponse = AuthResponse;
+
+export type MeResponse = {
+  user: AuthUser;
+};
+
+type RefreshResponse = {
+  accessToken: string;
 };
 
 export type Product = {
@@ -306,10 +373,94 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-function authHeaders(accessToken: string) {
-  return {
-    Authorization: `Bearer ${accessToken}`,
-  };
+function withAuthorization(init: RequestInit, accessToken: string): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${accessToken}`);
+  return { ...init, headers };
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  const refreshToken = authSession.refreshToken;
+
+  if (!refreshToken) {
+    clearAuthSession();
+    return null;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!response.ok) {
+        clearRefreshSession(refreshToken);
+        return null;
+      }
+
+      const data = await response.json().catch(() => null) as RefreshResponse | null;
+
+      if (!data || typeof data.accessToken !== 'string' || !data.accessToken) {
+        clearRefreshSession(refreshToken);
+        return null;
+      }
+
+      if (authSession.refreshToken !== refreshToken) {
+        return null;
+      }
+
+      saveRefreshedAccessToken(data.accessToken);
+      return data.accessToken;
+    } catch {
+      clearRefreshSession(refreshToken);
+      return null;
+    }
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
+async function authenticatedFetch(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const currentAccessToken = authSession.accessToken || accessToken;
+  const response = await fetch(
+    `${API_BASE_URL}${path}`,
+    withAuthorization(init, currentAccessToken)
+  );
+
+  if (response.status !== 401) {
+    return response;
+  }
+
+  const refreshedAccessToken = await refreshAccessToken();
+
+  if (!refreshedAccessToken) {
+    return response;
+  }
+
+  const retryResponse = await fetch(
+    `${API_BASE_URL}${path}`,
+    withAuthorization(init, refreshedAccessToken)
+  );
+
+  if (retryResponse.status === 401 && authSession.accessToken === refreshedAccessToken) {
+    clearAuthSession();
+  }
+
+  return retryResponse;
 }
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
@@ -322,6 +473,25 @@ export async function login(email: string, password: string): Promise<LoginRespo
   });
 
   return parseResponse<LoginResponse>(response);
+}
+
+export async function register(
+  name: string,
+  email: string,
+  password: string
+): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password }),
+  });
+
+  return parseResponse<AuthResponse>(response);
+}
+
+export async function getCurrentUser(accessToken: string): Promise<MeResponse> {
+  const response = await authenticatedFetch('/api/auth/me', accessToken);
+  return parseResponse<MeResponse>(response);
 }
 
 export async function getProducts(
@@ -343,17 +513,13 @@ export async function getProducts(
   }
 
   const path = query.size > 0 ? `/api/products?${query.toString()}` : '/api/products';
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: authHeaders(accessToken),
-  });
+  const response = await authenticatedFetch(path, accessToken);
 
   return parseResponse<ProductsResponse>(response);
 }
 
 export async function getScraperStatus(accessToken: string): Promise<ScraperStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/scraper/status`, {
-    headers: authHeaders(accessToken),
-  });
+  const response = await authenticatedFetch('/api/scraper/status', accessToken);
 
   return parseResponse<ScraperStatusResponse>(response);
 }
@@ -362,12 +528,9 @@ export async function triggerTargetScrape(
   accessToken: string,
   targetId: string
 ): Promise<TriggerScrapeResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/scraper/trigger`, {
+  const response = await authenticatedFetch('/api/scraper/trigger', accessToken, {
     method: 'POST',
-    headers: {
-      ...authHeaders(accessToken),
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ targetId }),
   });
 
@@ -379,10 +542,13 @@ export async function getScrapeJobStatus(
   jobId: string,
   signal?: AbortSignal
 ): Promise<ScrapeJobStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/scraper/jobs/${encodeURIComponent(jobId)}`, {
-    headers: authHeaders(accessToken),
-    signal,
-  });
+  const response = await authenticatedFetch(
+    `/api/scraper/jobs/${encodeURIComponent(jobId)}`,
+    accessToken,
+    {
+      signal,
+    }
+  );
 
   return parseResponse<ScrapeJobStatusResponse>(response);
 }
@@ -392,10 +558,10 @@ export async function getCompetitorTargets(
   productId: string,
   signal?: AbortSignal
 ): Promise<CompetitorTargetsResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitor-targets`,
+  const response = await authenticatedFetch(
+    `/api/products/${encodeURIComponent(productId)}/competitor-targets`,
+    accessToken,
     {
-      headers: authHeaders(accessToken),
       signal,
     }
   );
@@ -408,14 +574,12 @@ export async function createCompetitorTarget(
   productId: string,
   input: CreateCompetitorTargetInput
 ): Promise<CompetitorTargetMutationResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitor-targets`,
+  const response = await authenticatedFetch(
+    `/api/products/${encodeURIComponent(productId)}/competitor-targets`,
+    accessToken,
     {
       method: 'POST',
-      headers: {
-        ...authHeaders(accessToken),
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     }
   );
@@ -429,14 +593,12 @@ export async function updateCompetitorTarget(
   targetId: string,
   input: UpdateCompetitorTargetInput
 ): Promise<CompetitorTargetMutationResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/competitor-targets/${encodeURIComponent(targetId)}`,
+  const response = await authenticatedFetch(
+    `/api/products/${encodeURIComponent(productId)}/competitor-targets/${encodeURIComponent(targetId)}`,
+    accessToken,
     {
       method: 'PATCH',
-      headers: {
-        ...authHeaders(accessToken),
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     }
   );
@@ -468,10 +630,7 @@ export async function getProductSalesHistory(
   const path = `/api/products/${encodeURIComponent(productId)}/sales${
     queryString ? `?${queryString}` : ''
   }`;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: authHeaders(accessToken),
-    signal,
-  });
+  const response = await authenticatedFetch(path, accessToken, { signal });
 
   return parseResponse<ProductSalesHistoryResponse>(response);
 }
@@ -481,14 +640,12 @@ export async function bulkUpsertProductSales(
   productId: string,
   payload: BulkProductSalesRequest
 ): Promise<BulkProductSalesResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/sales/bulk`,
+  const response = await authenticatedFetch(
+    `/api/products/${encodeURIComponent(productId)}/sales/bulk`,
+    accessToken,
     {
       method: 'POST',
-      headers: {
-        ...authHeaders(accessToken),
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }
   );
@@ -500,11 +657,11 @@ export async function createPriceSuggestion(
   accessToken: string,
   productId: string
 ): Promise<PriceSuggestionResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/pricing/products/${encodeURIComponent(productId)}/suggestions`,
+  const response = await authenticatedFetch(
+    `/api/pricing/products/${encodeURIComponent(productId)}/suggestions`,
+    accessToken,
     {
       method: 'POST',
-      headers: authHeaders(accessToken),
     }
   );
 
@@ -518,10 +675,11 @@ export async function getPriceSuggestions(
   signal?: AbortSignal
 ): Promise<PriceSuggestionsResponse> {
   const query = new URLSearchParams({ status, limit: String(limit) });
-  const response = await fetch(`${API_BASE_URL}/api/pricing/suggestions?${query.toString()}`, {
-    headers: authHeaders(accessToken),
-    signal,
-  });
+  const response = await authenticatedFetch(
+    `/api/pricing/suggestions?${query.toString()}`,
+    accessToken,
+    { signal }
+  );
 
   return parseResponse<PriceSuggestionsResponse>(response);
 }
@@ -531,10 +689,10 @@ export async function getPriceSuggestion(
   suggestionId: string,
   signal?: AbortSignal
 ): Promise<PriceSuggestionResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}`,
+  const response = await authenticatedFetch(
+    `/api/pricing/suggestions/${encodeURIComponent(suggestionId)}`,
+    accessToken,
     {
-      headers: authHeaders(accessToken),
       signal,
     }
   );
@@ -546,11 +704,11 @@ export async function generatePriceSuggestionRationale(
   accessToken: string,
   suggestionId: string
 ): Promise<PriceSuggestionRationaleResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/rationale`,
+  const response = await authenticatedFetch(
+    `/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/rationale`,
+    accessToken,
     {
       method: 'POST',
-      headers: authHeaders(accessToken),
     }
   );
 
@@ -561,11 +719,11 @@ export async function approvePriceSuggestion(
   accessToken: string,
   suggestionId: string
 ): Promise<ApprovePriceSuggestionResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/approve`,
+  const response = await authenticatedFetch(
+    `/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/approve`,
+    accessToken,
     {
       method: 'POST',
-      headers: authHeaders(accessToken),
     }
   );
 
@@ -576,11 +734,11 @@ export async function rejectPriceSuggestion(
   accessToken: string,
   suggestionId: string
 ): Promise<PriceSuggestionResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/reject`,
+  const response = await authenticatedFetch(
+    `/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/reject`,
+    accessToken,
     {
       method: 'POST',
-      headers: authHeaders(accessToken),
     }
   );
 

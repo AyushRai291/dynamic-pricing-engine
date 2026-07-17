@@ -15,11 +15,14 @@ import {
 } from 'lucide-react';
 import { ReactNode, useState } from 'react';
 
+import { AuthUser } from '../api/client';
+
 type QueueIndicatorState = 'checking' | 'connected' | 'disconnected';
 export type WorkspaceView = 'overview' | 'price-suggestions';
 
 type LayoutProps = {
   children: ReactNode;
+  user: AuthUser;
   onLogout: () => void;
   searchValue: string;
   onSearchChange: (value: string) => void;
@@ -176,6 +179,7 @@ function Sidebar({
 
 export default function Layout({
   children,
+  user,
   onLogout,
   searchValue,
   onSearchChange,
@@ -288,6 +292,16 @@ export default function Layout({
               >
                 {isRefreshingQueue ? 'Refreshing' : 'Refresh'}
               </button>
+            </div>
+
+            <div className="hidden min-w-0 text-right sm:block">
+              <div className="flex items-center justify-end gap-2">
+                <p className="max-w-32 truncate text-sm font-semibold text-slate-900 lg:max-w-44">{user.name}</p>
+                <span className="rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700">
+                  {user.role}
+                </span>
+              </div>
+              <p className="hidden max-w-52 truncate text-xs text-slate-500 md:block">{user.email}</p>
             </div>
 
             <button

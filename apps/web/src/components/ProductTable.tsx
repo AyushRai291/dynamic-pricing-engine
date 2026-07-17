@@ -35,6 +35,7 @@ type ProductTableProps = {
   onManageCompetitors: (product: Product) => void;
   onViewSales: (product: Product) => void;
   accessToken: string;
+  canManage: boolean;
   onUnauthorized: () => void;
   onSuggestionGenerated: () => void;
 };
@@ -121,6 +122,7 @@ export default function ProductTable({
   onManageCompetitors,
   onViewSales,
   accessToken,
+  canManage,
   onUnauthorized,
   onSuggestionGenerated,
 }: ProductTableProps) {
@@ -128,7 +130,7 @@ export default function ProductTable({
   const [generationNotice, setGenerationNotice] = useState<GenerationNotice | null>(null);
 
   async function handleGenerateSuggestion(product: Product) {
-    if (generatingProductId) {
+    if (!canManage || generatingProductId) {
       return;
     }
 
@@ -321,21 +323,23 @@ export default function ProductTable({
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
-                        type="button"
-                        onClick={() => void handleGenerateSuggestion(product)}
-                        disabled={Boolean(generatingProductId) || !product.is_active}
-                        aria-label={`Generate price suggestion for ${product.name}`}
-                        title={!product.is_active ? 'Only active products can receive suggestions.' : undefined}
-                      >
-                        {generatingProductId === product.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="h-4 w-4" />
-                        )}
-                        {generatingProductId === product.id ? 'Generating' : 'Generate suggestion'}
-                      </button>
+                      {canManage ? (
+                        <button
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          type="button"
+                          onClick={() => void handleGenerateSuggestion(product)}
+                          disabled={Boolean(generatingProductId) || !product.is_active}
+                          aria-label={`Generate price suggestion for ${product.name}`}
+                          title={!product.is_active ? 'Only active products can receive suggestions.' : undefined}
+                        >
+                          {generatingProductId === product.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4" />
+                          )}
+                          {generatingProductId === product.id ? 'Generating' : 'Generate suggestion'}
+                        </button>
+                      ) : null}
                       <button
                         className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         type="button"

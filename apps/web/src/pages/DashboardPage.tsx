@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
+  AuthUser,
   Product,
   ProductsResponse,
   ScraperStatusResponse,
@@ -28,6 +29,7 @@ import PriceSuggestionsPage from './PriceSuggestionsPage';
 
 type DashboardPageProps = {
   accessToken: string;
+  user: AuthUser;
   onLogout: () => void;
 };
 
@@ -82,7 +84,7 @@ function StatCard({
   );
 }
 
-export default function DashboardPage({ accessToken, onLogout }: DashboardPageProps) {
+export default function DashboardPage({ accessToken, user, onLogout }: DashboardPageProps) {
   const [activeView, setActiveView] = useState<WorkspaceView>('overview');
   const [suggestionsRefreshKey, setSuggestionsRefreshKey] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
@@ -219,9 +221,11 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
 
   const productTotal = pagination?.total ?? products.length;
   const queue = queueStatus?.queue;
+  const canManage = user.role === 'manager' || user.role === 'admin';
 
   return (
     <Layout
+      user={user}
       onLogout={onLogout}
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
@@ -232,6 +236,12 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
       activeView={activeView}
       onViewChange={setActiveView}
     >
+      {!canManage ? (
+        <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950" role="status">
+          Viewer access is read-only. You can inspect products, sales, competitors, queue status, and price suggestions; manager or admin access is required for changes.
+        </div>
+      ) : null}
+
       {activeView === 'overview' ? (
         <>
           <div className="space-y-6">
@@ -284,6 +294,7 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
           onManageCompetitors={setSelectedCompetitorProduct}
           onViewSales={setSelectedSalesProduct}
           accessToken={accessToken}
+          canManage={canManage}
           onUnauthorized={onLogout}
           onSuggestionGenerated={() => {
             setSuggestionsRefreshKey((value) => value + 1);
@@ -295,6 +306,7 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
             product={selectedCompetitorProduct}
             isOpen={Boolean(selectedCompetitorProduct)}
             accessToken={accessToken}
+            canManage={canManage}
             queueAvailable={queueAvailable}
             isQueueLoading={isQueueLoading}
             onClose={() => setSelectedCompetitorProduct(null)}
@@ -306,6 +318,7 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
             product={selectedSalesProduct}
             isOpen={Boolean(selectedSalesProduct)}
             accessToken={accessToken}
+            canManage={canManage}
             onClose={() => setSelectedSalesProduct(null)}
             onUnauthorized={onLogout}
           />
@@ -313,6 +326,7 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
       ) : (
         <PriceSuggestionsPage
           accessToken={accessToken}
+          canManage={canManage}
           refreshKey={suggestionsRefreshKey}
           onUnauthorized={onLogout}
           onProductsChanged={loadProducts}

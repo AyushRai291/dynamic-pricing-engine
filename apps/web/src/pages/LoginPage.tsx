@@ -1,13 +1,17 @@
 import { FormEvent, useState } from 'react';
-import { Eye, EyeOff, Loader2, LockKeyhole, Mail } from 'lucide-react';
+import { Eye, EyeOff, Loader2, LockKeyhole, Mail, UserRound } from 'lucide-react';
 
-import { login } from '../api/client';
+import { AuthResponse, login, register } from '../api/client';
 
 type LoginPageProps = {
-  onLogin: (accessToken: string) => void;
+  onAuthenticated: (response: AuthResponse) => void;
 };
 
-export default function LoginPage({ onLogin }: LoginPageProps) {
+type AuthMode = 'login' | 'register';
+
+export default function LoginPage({ onAuthenticated }: LoginPageProps) {
+  const [mode, setMode] = useState<AuthMode>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -20,10 +24,12 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setIsSubmitting(true);
 
     try {
-      const result = await login(email, password);
-      onLogin(result.accessToken);
+      const result = mode === 'login'
+        ? await login(email, password)
+        : await register(name, email, password);
+      onAuthenticated(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to log in');
+      setError(err instanceof Error ? err.message : `Unable to ${mode === 'login' ? 'log in' : 'register'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -86,15 +92,61 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <div className="mb-7 grid grid-cols-2 rounded-xl bg-slate-100 p-1" aria-label="Authentication mode">
+                {(['login', 'register'] as const).map((value) => (
+                  <button
+                    className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      mode === value ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    type="button"
+                    key={value}
+                    aria-pressed={mode === value}
+                    onClick={() => {
+                      setMode(value);
+                      setError('');
+                    }}
+                  >
+                    {value === 'login' ? 'Sign in' : 'Register'}
+                  </button>
+                ))}
+              </div>
+
               <div>
-                <p className="text-sm font-semibold text-indigo-700">Welcome back</p>
-                <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">Sign in to PricePilot AI</h2>
+                <p className="text-sm font-semibold text-indigo-700">
+                  {mode === 'login' ? 'Welcome back' : 'Create an account'}
+                </p>
+                <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+                  {mode === 'login' ? 'Sign in to PricePilot AI' : 'Register for PricePilot AI'}
+                </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Use your API account to access product pricing and scraper queue controls.
+                  {mode === 'login'
+                    ? 'Use your API account to access the pricing workspace.'
+                    : 'New accounts receive viewer access for read-only products, sales, competitors, queues, and suggestions.'}
                 </p>
               </div>
 
               <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
+                {mode === 'register' ? (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700" htmlFor="name">
+                      Name
+                    </label>
+                    <div className="relative mt-2">
+                      <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                        id="name"
+                        name="name"
+                        type="text"
+                        autoComplete="name"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700" htmlFor="email">
                     Email
@@ -125,7 +177,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                       id="password"
                       name="password"
                       type={showPassword ? 'text' : 'password'}
-                      autoComplete="current-password"
+                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       required
@@ -153,7 +205,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {isSubmitting ? 'Signing in' : 'Sign in'}
+                  {isSubmitting
+                    ? mode === 'login' ? 'Signing in' : 'Creating account'
+                    : mode === 'login' ? 'Sign in' : 'Create viewer account'}
                 </button>
               </form>
             </div>

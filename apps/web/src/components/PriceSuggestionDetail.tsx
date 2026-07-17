@@ -30,6 +30,7 @@ type ActiveAction = 'rationale' | DecisionKind;
 type PriceSuggestionDetailProps = {
   suggestionId: string | null;
   accessToken: string;
+  canManage: boolean;
   onClose: () => void;
   onUnauthorized: () => void;
   onRefreshList: () => void;
@@ -163,6 +164,7 @@ function DetailSkeleton() {
 export default function PriceSuggestionDetail({
   suggestionId,
   accessToken,
+  canManage,
   onClose,
   onUnauthorized,
   onRefreshList,
@@ -260,7 +262,7 @@ export default function PriceSuggestionDetail({
   }, [onClose, suggestionId]);
 
   async function handleGenerateRationale() {
-    if (!suggestion || activeAction) {
+    if (!canManage || !suggestion || activeAction) {
       return;
     }
 
@@ -295,7 +297,7 @@ export default function PriceSuggestionDetail({
   }
 
   async function handleDecision(kind: DecisionKind) {
-    if (!suggestion || suggestion.status !== 'pending' || activeAction) {
+    if (!canManage || !suggestion || suggestion.status !== 'pending' || activeAction) {
       return;
     }
 
@@ -508,7 +510,7 @@ export default function PriceSuggestionDetail({
                         Optional explanation of the saved evidence; it does not choose or change the price.
                       </p>
                     </div>
-                    {!rationale && suggestion.status === 'pending' ? (
+                    {canManage && !rationale && suggestion.status === 'pending' ? (
                       <button
                         className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                         type="button"
@@ -559,7 +561,9 @@ export default function PriceSuggestionDetail({
                   ) : (
                     <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
                       {suggestion.status === 'pending'
-                        ? 'No AI rationale has been saved. You can still approve or reject this suggestion.'
+                        ? canManage
+                          ? 'No AI rationale has been saved. You can still approve or reject this suggestion.'
+                          : 'No AI rationale has been saved for this suggestion.'
                         : 'No AI rationale was saved before this suggestion was decided.'}
                     </div>
                   )}
@@ -590,13 +594,13 @@ export default function PriceSuggestionDetail({
                   </section>
                 ) : null}
 
-                {confirmation ? <DecisionConfirmation kind={confirmation} suggestion={suggestion} /> : null}
+                {canManage && confirmation ? <DecisionConfirmation kind={confirmation} suggestion={suggestion} /> : null}
               </>
             ) : null}
           </div>
         </div>
 
-        {suggestion?.status === 'pending' ? (
+        {canManage && suggestion?.status === 'pending' ? (
           <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
               {confirmation ? (

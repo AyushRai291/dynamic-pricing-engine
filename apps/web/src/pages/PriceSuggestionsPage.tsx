@@ -25,6 +25,7 @@ type ReviewStatus = Exclude<PriceSuggestionStatus, 'expired'>;
 
 type PriceSuggestionsPageProps = {
   accessToken: string;
+  canManage: boolean;
   refreshKey: number;
   onUnauthorized: () => void;
   onProductsChanged: () => void | Promise<void>;
@@ -109,6 +110,7 @@ function LoadingSkeleton() {
 
 export default function PriceSuggestionsPage({
   accessToken,
+  canManage,
   refreshKey,
   onUnauthorized,
   onProductsChanged,
@@ -419,6 +421,7 @@ export default function PriceSuggestionsPage({
       <PriceSuggestionDetail
         suggestionId={selectedSuggestionId}
         accessToken={accessToken}
+        canManage={canManage}
         onClose={() => setSelectedSuggestionId(null)}
         onUnauthorized={onUnauthorized}
         onRefreshList={() => void loadSuggestions()}

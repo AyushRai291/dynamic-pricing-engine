@@ -79,9 +79,6 @@ test('retry accepts failed configured jobs, replaces payload, and rejects other 
   const queueFn = () => ({ getJob: async () => job });
   const trustedPayload = {
     targetId: TARGET_ID,
-    productId: job.data.productId,
-    competitorName: 'Current Store',
-    competitorUrl: 'https://current.example/product',
   };
 
   assert.equal(await getFailedScrapeJobTargetId('job-1', { queueFn }), TARGET_ID);

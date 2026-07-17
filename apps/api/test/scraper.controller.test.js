@@ -9,6 +9,7 @@ const {
   createRetryScrapeJobHandler,
   createTriggerScrapeHandler,
   parseScrapeJobsQuery,
+  parseTriggerScrapeBody,
   validateScraperUuid,
 } = await import('../src/controllers/scraper.controller.js');
 
@@ -32,7 +33,7 @@ function invokeHandler(handler, req) {
   });
 }
 
-test('targetId trigger enqueues only stored active target values', async () => {
+test('targetId trigger enqueues only the stored target identity', async () => {
   let enqueuedPayload;
   const handler = createTriggerScrapeHandler({
     getActiveTargetFn: async (targetId) => {
@@ -50,23 +51,32 @@ test('targetId trigger enqueues only stored active target values', async () => {
     },
   });
   const response = await invokeHandler(handler, {
-    body: {
-      targetId: TARGET_ID,
-      productId: '33333333-3333-4333-8333-333333333333',
-      competitorName: 'Client Store',
-      competitorUrl: 'https://client.example/wrong',
-    },
+    body: { targetId: TARGET_ID },
   });
 
-  assert.deepEqual(enqueuedPayload, {
-    targetId: TARGET_ID,
-    productId: PRODUCT_ID,
-    competitorName: 'Stored Store',
-    competitorUrl: 'https://stored.example/product',
-    mockHtml: undefined,
-  });
+  assert.deepEqual(enqueuedPayload, { targetId: TARGET_ID });
   assert.equal(response.statusCode, 202);
   assert.equal(response.body.message, 'Scrape queued');
+});
+
+test('public trigger body accepts exactly targetId and rejects legacy or unknown fields', async () => {
+  assert.equal(parseTriggerScrapeBody({ targetId: TARGET_ID }), TARGET_ID);
+  const invalidBodies = [
+    {},
+    null,
+    [],
+    { targetId: 'bad' },
+    { productId: PRODUCT_ID },
+    { targetId: TARGET_ID, productId: PRODUCT_ID },
+    { targetId: TARGET_ID, competitorName: 'Client Store' },
+    { targetId: TARGET_ID, competitorUrl: 'https://client.example' },
+    { targetId: TARGET_ID, mockHtml: '<div>1</div>' },
+    { targetId: TARGET_ID, unknown: true },
+  ];
+
+  for (const body of invalidBodies) {
+    assert.throws(() => parseTriggerScrapeBody(body), (error) => error.statusCode === 400);
+  }
 });
 
 test('recent job listing validates filters and pagination before calling the queue', async () => {
@@ -114,9 +124,6 @@ test('failed retry resolves stored target id and submits only current trusted ta
     jobId: 'job-9',
     payload: {
       targetId: TARGET_ID,
-      productId: PRODUCT_ID,
-      competitorName: 'Current Store',
-      competitorUrl: 'https://current.example/product',
     },
   });
   assert.equal(response.statusCode, 202);
@@ -140,71 +147,6 @@ test('inactive target cannot be triggered', async () => {
     (error) => error === inactiveError
   );
   assert.equal(enqueueCalled, false);
-});
-
-test('legacy mockHtml mode works for deterministic private fixtures without an override', async () => {
-  let enqueuedPayload;
-  let existenceChecked = false;
-  const handler = createTriggerScrapeHandler({
-    assertProductExistsFn: async (productId) => {
-      existenceChecked = productId === PRODUCT_ID;
-    },
-    enqueueFn: async (payload) => {
-      enqueuedPayload = payload;
-      return { id: 'job-2', name: 'scrape-competitor', state: 'waiting' };
-    },
-    allowPrivateUrls: false,
-  });
-  const mockHtml = '<div class="price">INR 42.50</div>';
-
-  const response = await invokeHandler(handler, {
-    body: {
-      productId: PRODUCT_ID,
-      competitorName: 'Local fixture',
-      competitorUrl: 'http://127.0.0.1:9999/product',
-      mockHtml,
-    },
-  });
-
-  assert.equal(existenceChecked, true);
-  assert.deepEqual(enqueuedPayload, {
-    productId: PRODUCT_ID,
-    competitorName: 'Local fixture',
-    competitorUrl: 'http://127.0.0.1:9999/product',
-    mockHtml,
-  });
-  assert.equal(response.statusCode, 202);
-});
-
-test('live legacy trigger blocks private URLs and permits the explicit override', async () => {
-  const body = {
-    productId: PRODUCT_ID,
-    competitorName: 'Local fixture',
-    competitorUrl: 'http://127.0.0.1:9999/product',
-  };
-  const blockedHandler = createTriggerScrapeHandler({
-    assertProductExistsFn: async () => {},
-    enqueueFn: async () => ({ id: 'never' }),
-    allowPrivateUrls: false,
-  });
-
-  await assert.rejects(
-    invokeHandler(blockedHandler, { body }),
-    (error) => error.statusCode === 400 && error.message === 'competitorUrl host is not allowed'
-  );
-
-  let enqueued = false;
-  const allowedHandler = createTriggerScrapeHandler({
-    assertProductExistsFn: async () => {},
-    enqueueFn: async () => {
-      enqueued = true;
-      return { id: 'local-job' };
-    },
-    allowPrivateUrls: true,
-  });
-  const response = await invokeHandler(allowedHandler, { body });
-  assert.equal(response.statusCode, 202);
-  assert.equal(enqueued, true);
 });
 
 test('scraper UUID validation rejects malformed product and target IDs', () => {

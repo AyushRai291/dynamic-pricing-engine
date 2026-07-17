@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
 import { SCRAPER_ALLOW_PRIVATE_URLS } from '../config/env.js';
@@ -10,14 +11,21 @@ function createError(message, statusCode = 400) {
 
 function isBlockedIpv4(hostname) {
   const octets = hostname.split('.').map(Number);
-  const [first, second] = octets;
+  const [first, second, third] = octets;
 
   return first === 0
     || first === 10
+    || (first === 100 && second >= 64 && second <= 127)
     || first === 127
     || (first === 169 && second === 254)
     || (first === 172 && second >= 16 && second <= 31)
-    || (first === 192 && second === 168);
+    || (first === 192 && second === 0 && (third === 0 || third === 2))
+    || (first === 192 && second === 88 && third === 99)
+    || (first === 192 && second === 168)
+    || (first === 198 && (second === 18 || second === 19))
+    || (first === 198 && second === 51 && third === 100)
+    || (first === 203 && second === 0 && third === 113)
+    || first >= 224;
 }
 
 function parseIpv6Bytes(hostname) {
@@ -58,6 +66,13 @@ function isBlockedIpv6(hostname) {
   const isLoopback = bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1;
   const isUniqueLocal = (bytes[0] & 0xfe) === 0xfc;
   const isLinkLocal = bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80;
+  const isSiteLocal = bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0xc0;
+  const isMulticast = bytes[0] === 0xff;
+  const isGlobalUnicast = (bytes[0] & 0xe0) === 0x20;
+  const isDocumentation = bytes[0] === 0x20 && bytes[1] === 0x01
+    && bytes[2] === 0x0d && bytes[3] === 0xb8;
+  const isTeredo = bytes[0] === 0x20 && bytes[1] === 0x01
+    && bytes[2] === 0x00 && bytes[3] === 0x00;
   const isIpv4Mapped = bytes.slice(0, 10).every((byte) => byte === 0)
     && bytes[10] === 0xff
     && bytes[11] === 0xff;
@@ -68,7 +83,23 @@ function isBlockedIpv6(hostname) {
     || isLoopback
     || isUniqueLocal
     || isLinkLocal
+    || isSiteLocal
+    || isMulticast
+    || !isGlobalUnicast
+    || isDocumentation
+    || isTeredo
     || ((isIpv4Mapped || isIpv4Compatible) && isBlockedIpv4(embeddedIpv4));
+}
+
+export function isPublicScraperAddress(address) {
+  const normalized = typeof address === 'string'
+    ? address.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+    : '';
+  const version = isIP(normalized);
+
+  if (version === 4) return !isBlockedIpv4(normalized);
+  if (version === 6) return !isBlockedIpv6(normalized);
+  return false;
 }
 
 export function isBlockedScraperHostname(hostname) {
@@ -128,4 +159,39 @@ export function validateCompetitorUrl(
   }
 
   return trimmed;
+}
+
+export async function validateLiveCompetitorUrl(
+  value,
+  {
+    allowPrivateUrls = SCRAPER_ALLOW_PRIVATE_URLS,
+    lookupFn = lookup,
+  } = {}
+) {
+  const validated = validateCompetitorUrl(value, { allowPrivateUrls });
+
+  if (allowPrivateUrls) {
+    return validated;
+  }
+
+  const hostname = new URL(validated).hostname.replace(/^\[|\]$/g, '');
+  let addresses;
+
+  try {
+    addresses = await lookupFn(hostname, { all: true, verbatim: true });
+  } catch {
+    throw createError('competitorUrl host could not be resolved');
+  }
+
+  const normalizedAddresses = Array.isArray(addresses) ? addresses : [addresses];
+  if (
+    normalizedAddresses.length === 0
+    || normalizedAddresses.some((entry) => !isPublicScraperAddress(
+      typeof entry === 'string' ? entry : entry?.address
+    ))
+  ) {
+    throw createError('competitorUrl host resolved to a non-public address');
+  }
+
+  return validated;
 }

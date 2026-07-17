@@ -9,7 +9,6 @@ import {
 import { getScraperSchedulerStatus } from '../schedulers/scraper.scheduler.js';
 import { SCRAPER_ALLOW_PRIVATE_URLS } from '../config/env.js';
 import { getActiveCompetitorTarget } from '../services/competitorTarget.service.js';
-import { assertProductExists } from '../services/scraper.service.js';
 import { getScraperWorkerStatus } from '../workers/scraper.worker.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { validateCompetitorUrl } from '../utils/competitorUrl.js';
@@ -21,28 +20,6 @@ function createError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
-}
-
-function parseRequiredString(body, fieldName) {
-  const value = body[fieldName];
-
-  if (typeof value !== 'string' || !value.trim()) {
-    throw createError(`${fieldName} is required`, 400);
-  }
-
-  return value.trim();
-}
-
-function parseOptionalMockHtml(body) {
-  if (body.mockHtml === undefined || body.mockHtml === null) {
-    return undefined;
-  }
-
-  if (typeof body.mockHtml !== 'string' || !body.mockHtml.trim()) {
-    throw createError('mockHtml must be a non-empty string', 400);
-  }
-
-  return body.mockHtml;
 }
 
 export function validateScraperUuid(id, fieldName) {
@@ -87,6 +64,19 @@ export function parseScrapeJobsQuery(query = {}) {
     page: parsePositiveInteger(query.page, 'page', 1, Number.MAX_SAFE_INTEGER),
     limit: parsePositiveInteger(query.limit, 'limit', 25, 100),
   };
+}
+
+export function parseTriggerScrapeBody(body) {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    throw createError('Request body must be a JSON object', 400);
+  }
+
+  const fields = Object.keys(body);
+  if (fields.length !== 1 || fields[0] !== 'targetId') {
+    throw createError('Request body must contain only targetId', 400);
+  }
+
+  return validateScraperUuid(body.targetId, 'targetId');
 }
 
 export const getScraperStatus = asyncHandler(async (req, res) => {
@@ -134,12 +124,7 @@ export function createRetryScrapeJobHandler({
 
     const target = await getActiveTargetFn(targetId);
     validateCompetitorUrl(target.competitorUrl, { allowPrivateUrls });
-    const job = await retryFn(jobId, {
-      targetId: target.id,
-      productId: target.productId,
-      competitorName: target.competitorName,
-      competitorUrl: target.competitorUrl,
-    });
+    const job = await retryFn(jobId, { targetId: target.id });
 
     res.status(202).json({ message: 'Scrape retry queued', job });
   });
@@ -148,46 +133,13 @@ export function createRetryScrapeJobHandler({
 export function createTriggerScrapeHandler({
   enqueueFn = enqueueScrapeJob,
   getActiveTargetFn = getActiveCompetitorTarget,
-  assertProductExistsFn = assertProductExists,
   allowPrivateUrls = SCRAPER_ALLOW_PRIVATE_URLS,
 } = {}) {
   return asyncHandler(async (req, res) => {
-    const body = req.body || {};
-    const mockHtml = parseOptionalMockHtml(body);
-    let payload;
-
-    if (body.targetId !== undefined) {
-      const targetId = parseRequiredString(body, 'targetId');
-
-      validateScraperUuid(targetId, 'targetId');
-      const target = await getActiveTargetFn(targetId);
-
-      validateCompetitorUrl(target.competitorUrl, {
-        allowPrivateUrls: allowPrivateUrls || Boolean(mockHtml),
-        allowInvalidForMockHtml: Boolean(mockHtml),
-      });
-      payload = {
-        targetId: target.id,
-        productId: target.productId,
-        competitorName: target.competitorName,
-        competitorUrl: target.competitorUrl,
-        mockHtml,
-      };
-    } else {
-      const productId = parseRequiredString(body, 'productId');
-      const competitorName = parseRequiredString(body, 'competitorName');
-      const competitorUrl = parseRequiredString(body, 'competitorUrl');
-
-      validateScraperUuid(productId, 'productId');
-      validateCompetitorUrl(competitorUrl, {
-        allowPrivateUrls: allowPrivateUrls || Boolean(mockHtml),
-        allowInvalidForMockHtml: Boolean(mockHtml),
-      });
-      await assertProductExistsFn(productId);
-      payload = { productId, competitorName, competitorUrl, mockHtml };
-    }
-
-    const job = await enqueueFn(payload);
+    const targetId = parseTriggerScrapeBody(req.body);
+    const target = await getActiveTargetFn(targetId);
+    validateCompetitorUrl(target.competitorUrl, { allowPrivateUrls });
+    const job = await enqueueFn({ targetId: target.id });
 
     res.status(202).json({
       message: 'Scrape queued',

@@ -6,7 +6,7 @@ import {
   SCRAPER_QUEUE_NAME,
   SCRAPER_WORKER_CONCURRENCY,
 } from '../queues/scraper.queue.js';
-import { scrapeAndStoreCompetitorData } from '../services/scraper.service.js';
+import { scrapeConfiguredTarget } from '../services/scraper.service.js';
 
 let scraperWorker;
 let workerConnection;
@@ -18,19 +18,36 @@ function sanitizeScrapeResult(row) {
     competitorDataId: row.id,
     productId: row.product_id,
     competitorName: row.competitor_name,
-    competitorUrl: row.competitor_url,
     price: Number(row.price),
     scrapedAt: row.scraped_at,
   };
 }
 
-async function processScrapeJob(job) {
+export async function processScrapeJob(
+  job,
+  { scrapeConfiguredFn = scrapeConfiguredTarget } = {}
+) {
   if (job.name !== SCRAPE_COMPETITOR_JOB_NAME) {
-    throw new Error(`Unsupported scraper job type: ${job.name}`);
+    throw new Error('Unsupported scraper job type');
   }
 
-  const result = await scrapeAndStoreCompetitorData(job.data);
-  return sanitizeScrapeResult(result);
+  try {
+    const result = await scrapeConfiguredFn(job.data?.targetId);
+    return sanitizeScrapeResult(result);
+  } catch (error) {
+    const safeMessages = [
+      'Active competitor target not found',
+      'Active competitor target changed before storage',
+      'Price could not be parsed from HTML',
+      'competitorUrl host is not allowed',
+      'competitorUrl host resolved to a non-public address',
+      'Scraped HTML exceeds the configured size limit',
+      'Scrape exceeded the top-level redirect limit',
+    ];
+    const message = safeMessages.find((safeMessage) => error?.message === safeMessage)
+      || 'Scrape request failed';
+    throw new Error(message);
+  }
 }
 
 function ignoreConnectionErrorLogs(redisConnection) {
@@ -56,7 +73,7 @@ export function startScraperWorker() {
     commandTimeout: null,
     maxRetriesPerRequest: null,
   });
-  scraperWorker = new Worker(SCRAPER_QUEUE_NAME, processScrapeJob, {
+  scraperWorker = new Worker(SCRAPER_QUEUE_NAME, (job) => processScrapeJob(job), {
     connection: workerConnection,
     concurrency: SCRAPER_WORKER_CONCURRENCY,
   });
@@ -78,7 +95,7 @@ export function startScraperWorker() {
   });
 
   scraperWorker.on('error', (error) => {
-    lastWorkerError = error.message;
+    lastWorkerError = 'Worker connection error';
     console.error(`[scraper-worker] Redis or worker error: ${error.message}`);
   });
 

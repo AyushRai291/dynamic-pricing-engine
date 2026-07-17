@@ -46,7 +46,7 @@ test('one enqueue failure does not prevent remaining targets', async () => {
     getTargetsFn: async () => [TARGET_1, TARGET_2],
     enqueueFn: async (payload, options) => {
       calls.push({ payload, options });
-      if (payload.competitorName === 'Store One') {
+      if (payload.targetId === TARGET_1.targetId) {
         throw new Error('queue failure');
       }
 
@@ -61,9 +61,6 @@ test('one enqueue failure does not prevent remaining targets', async () => {
   assert.equal(errors.length, 1);
   assert.deepEqual(calls[1].payload, {
     targetId: TARGET_2.targetId,
-    productId: TARGET_2.productId,
-    competitorName: TARGET_2.competitorName,
-    competitorUrl: TARGET_2.competitorUrl,
   });
   assert.equal(calls[1].options.skipIfExists, true);
 });
@@ -99,21 +96,24 @@ test('scheduled job IDs use deterministic four-hour buckets and skip duplicates'
   );
 });
 
-test('unsafe stored target is skipped without blocking a safe target', async () => {
-  const queuedNames = [];
+test('scheduler queues target identities and leaves current target resolution to the worker', async () => {
+  const queuedTargets = [];
   const result = await runScraperSchedulerOnce({
     getTargetsFn: async () => [
       { ...TARGET_1, competitorUrl: 'http://127.0.0.1/product' },
       TARGET_2,
     ],
     enqueueFn: async (payload) => {
-      queuedNames.push(payload.competitorName);
+      queuedTargets.push(payload);
       return { id: 'job', duplicate: false };
     },
     now: NOW,
     logger: silentLogger,
   });
 
-  assert.deepEqual(result, { scheduled: 2, enqueued: 1, skipped: 1 });
-  assert.deepEqual(queuedNames, ['Store Two']);
+  assert.deepEqual(result, { scheduled: 2, enqueued: 2, skipped: 0 });
+  assert.deepEqual(queuedTargets, [
+    { targetId: TARGET_1.targetId },
+    { targetId: TARGET_2.targetId },
+  ]);
 });

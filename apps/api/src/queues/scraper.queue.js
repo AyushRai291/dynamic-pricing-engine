@@ -125,7 +125,6 @@ function sanitizeJobResult(result) {
     competitorDataId: result.competitorDataId,
     productId: result.productId,
     competitorName: result.competitorName,
-    competitorUrl: result.competitorUrl,
     price: result.price,
     scrapedAt: result.scrapedAt,
   };
@@ -146,8 +145,16 @@ export function sanitizeFailureReason(reason) {
     'Price could not be parsed from HTML',
     'Product not found',
     'competitorUrl host is not allowed',
+    'competitorUrl host resolved to a non-public address',
+    'Active competitor target not found',
+    'Active competitor target changed before storage',
+    'Scraped HTML exceeds the configured size limit',
+    'Scrape exceeded the top-level redirect limit',
+    'Scrape request failed',
   ];
-  const safeReason = safeReasons.find((candidate) => reason.includes(candidate));
+  const safeReason = safeReasons.find(
+    (candidate) => typeof reason === 'string' && reason.includes(candidate)
+  );
 
   return safeReason || 'Scrape job failed';
 }
@@ -295,7 +302,7 @@ export async function getScrapeJobStatus(jobId) {
     }
 
     if (state === 'failed') {
-      status.failureReason = job.failedReason;
+      status.failureReason = sanitizeFailureReason(job.failedReason);
     }
 
     return status;

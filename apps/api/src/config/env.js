@@ -90,7 +90,18 @@ export const QUEUE_REDIS_CONNECT_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_CON
 export const QUEUE_REDIS_COMMAND_TIMEOUT_MS = Number(process.env.QUEUE_REDIS_COMMAND_TIMEOUT_MS || 5000);
 export const SCRAPER_CRON_ENABLED = process.env.SCRAPER_CRON_ENABLED === 'true';
 export const SCRAPER_CRON_EXPRESSION = process.env.SCRAPER_CRON_EXPRESSION || '0 */4 * * *';
-export const SCRAPER_ALLOW_PRIVATE_URLS = process.env.SCRAPER_ALLOW_PRIVATE_URLS === 'true';
+export const SCRAPER_ALLOW_PRIVATE_URLS = process.env.SCRAPER_ALLOW_PRIVATE_URLS === 'true'
+  && ['development', 'test'].includes(process.env.NODE_ENV || 'development');
+export const SCRAPER_MAX_HTML_BYTES = parsePositiveInteger(
+  process.env.SCRAPER_MAX_HTML_BYTES ?? 2000000,
+  'SCRAPER_MAX_HTML_BYTES',
+  { maximum: 10000000 }
+);
+export const SCRAPER_MAX_REDIRECTS = parsePositiveInteger(
+  process.env.SCRAPER_MAX_REDIRECTS ?? 5,
+  'SCRAPER_MAX_REDIRECTS',
+  { maximum: 20 }
+);
 export const ML_SERVICE_URL = parseHttpUrl(
   process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000',
   'ML_SERVICE_URL'

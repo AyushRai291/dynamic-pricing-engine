@@ -3,7 +3,6 @@ import cron from 'node-cron';
 import { SCRAPER_CRON_ENABLED, SCRAPER_CRON_EXPRESSION } from '../config/env.js';
 import { enqueueScrapeJob } from '../queues/scraper.queue.js';
 import { getActiveConfiguredScrapeTargets } from '../services/scraper.service.js';
-import { validateCompetitorUrl } from '../utils/competitorUrl.js';
 
 const SCHEDULE_BUCKET_MS = 4 * 60 * 60 * 1000;
 
@@ -53,14 +52,8 @@ export async function runScraperSchedulerOnce({
 
   for (const target of targets) {
     try {
-      validateCompetitorUrl(target.competitorUrl);
       const job = await enqueueFn(
-        {
-          targetId: target.targetId,
-          productId: target.productId,
-          competitorName: target.competitorName,
-          competitorUrl: target.competitorUrl,
-        },
+        { targetId: target.targetId },
         {
           jobId: getScheduledScrapeJobId(target.targetId, now),
           skipIfExists: true,
@@ -108,7 +101,7 @@ export function startScraperScheduler() {
 
   scraperCronTask = cron.createTask(SCRAPER_CRON_EXPRESSION, () => {
     runScraperSchedulerOnce().catch((error) => {
-      schedulerState.lastError = error.message;
+      schedulerState.lastError = 'Scheduled enqueue failed';
       console.error(`[scraper-scheduler] scheduled enqueue failed: ${error.message}`);
     });
   });

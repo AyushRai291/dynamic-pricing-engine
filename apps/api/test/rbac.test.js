@@ -17,6 +17,7 @@ const {
   requireManagerOrAdmin,
 } = await import('../src/middleware/role.middleware.js');
 const { default: authRoutes } = await import('../src/routes/auth.routes.js');
+const { default: competitorTargetRoutes } = await import('../src/routes/competitorTarget.routes.js');
 const { default: pricingRoutes } = await import('../src/routes/pricing.routes.js');
 const { default: productRoutes } = await import('../src/routes/product.routes.js');
 const { default: scraperRoutes } = await import('../src/routes/scraper.routes.js');
@@ -119,6 +120,11 @@ test('viewer receives centralized 403 errors for product, scraper, and pricing m
             body: '{}',
           }),
           fetch(`${baseUrl}/api/scraper/trigger`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: '{}',
+          }),
+          fetch(`${baseUrl}/api/scraper/jobs/job-1/retry`, {
             method: 'POST',
             headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
             body: '{}',
@@ -241,6 +247,7 @@ test('every operational mutation is wired after auth with the manager/admin guar
     [productRoutes, 'post', '/:id/competitor-targets'],
     [productRoutes, 'patch', '/:id/competitor-targets/:targetId'],
     [scraperRoutes, 'post', '/trigger'],
+    [scraperRoutes, 'post', '/jobs/:jobId/retry'],
     [pricingRoutes, 'post', '/score/:productId'],
     [pricingRoutes, 'post', '/products/:id/suggestions'],
     [pricingRoutes, 'post', '/suggestions/:id/rationale'],
@@ -263,7 +270,9 @@ test('every operational mutation is wired after auth with the manager/admin guar
     );
   }
 
-  for (const router of [productRoutes, scraperRoutes, pricingRoutes]) {
+  for (const router of [productRoutes, scraperRoutes, pricingRoutes, competitorTargetRoutes]) {
+    const authIndex = router.stack.findIndex((layer) => layer.handle === authMiddleware);
+    assert.ok(authIndex >= 0, 'router is missing authentication');
     const getRoutes = router.stack.filter((layer) => layer.route?.methods.get);
 
     for (const routeLayer of getRoutes) {

@@ -9,8 +9,10 @@ process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
 const {
   createCreateCompetitorTargetHandler,
   createListCompetitorTargetsHandler,
+  createListGlobalCompetitorTargetsHandler,
   createUpdateCompetitorTargetHandler,
   parseCreateTargetBody,
+  parseGlobalTargetQuery,
   parsePatchTargetBody,
   validateTargetUuid,
 } = await import('../src/controllers/competitorTarget.controller.js');
@@ -159,6 +161,25 @@ test('target patch rejects empty, unknown, and incorrectly typed changes', () =>
   assertBadRequest(() => parsePatchTargetBody({ deleted: true }), /cannot be set/);
   assertBadRequest(() => parsePatchTargetBody({ competitorName: '  ' }), /required/);
   assertBadRequest(() => parsePatchTargetBody({ isActive: 'false' }), /boolean/);
+});
+
+test('global target handler validates useful filters and returns pagination', async () => {
+  assert.deepEqual(parseGlobalTargetQuery({ active: 'false', page: '2', limit: '100' }), {
+    page: 2,
+    limit: 100,
+    isActive: false,
+  });
+  assert.throws(() => parseGlobalTargetQuery({ active: 'all' }), /active must be true or false/);
+  assert.throws(() => parseGlobalTargetQuery({ limit: '101' }), /between 1 and 100/);
+
+  const result = { items: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+  const response = await invokeHandler(createListGlobalCompetitorTargetsHandler({
+    listFn: async (query) => {
+      assert.deepEqual(query, { page: 1, limit: 20, isActive: undefined });
+      return result;
+    },
+  }), { query: {} });
+  assert.deepEqual(response, { statusCode: 200, body: result });
 });
 
 test('competitor-target endpoints require JWT authentication', async (t) => {

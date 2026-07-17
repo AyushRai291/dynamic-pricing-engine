@@ -18,7 +18,12 @@ import { ReactNode, useState } from 'react';
 import { AuthUser } from '../api/client';
 
 type QueueIndicatorState = 'checking' | 'connected' | 'disconnected';
-export type WorkspaceView = 'overview' | 'products' | 'price-suggestions';
+export type WorkspaceView =
+  | 'overview'
+  | 'products'
+  | 'scraper-queue'
+  | 'competitor-intelligence'
+  | 'price-suggestions';
 
 type LayoutProps = {
   children: ReactNode;
@@ -37,12 +42,12 @@ type LayoutProps = {
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard, view: 'overview' as const },
   { label: 'Products', icon: Boxes, view: 'products' as const },
-  { label: 'Scraper Queue', icon: TimerReset },
+  { label: 'Scraper Queue', icon: TimerReset, view: 'scraper-queue' as const },
   { label: 'Price Suggestions', icon: Sparkles, view: 'price-suggestions' as const },
+  { label: 'Competitor Intelligence', icon: Radar, view: 'competitor-intelligence' as const },
 ];
 
 const futureItems = [
-  { label: 'Competitor Intelligence', icon: Radar },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'Settings', icon: Settings },
 ];
@@ -248,21 +253,25 @@ export default function Layout({
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    {activeView === 'overview'
-                      ? 'Overview'
-                      : activeView === 'products'
-                        ? 'Product workspace'
-                        : 'Review workspace'}
+                    {{
+                      overview: 'Overview',
+                      products: 'Product workspace',
+                      'scraper-queue': 'Queue workspace',
+                      'competitor-intelligence': 'Market workspace',
+                      'price-suggestions': 'Review workspace',
+                    }[activeView]}
                   </p>
                   <h1 className="truncate text-base font-bold text-slate-950 sm:text-lg">
-                    {activeView === 'overview'
-                      ? 'Dashboard'
-                      : activeView === 'products'
-                        ? 'Products'
-                        : 'Price Suggestions'}
+                    {{
+                      overview: 'Dashboard',
+                      products: 'Products',
+                      'scraper-queue': 'Scraper Queue',
+                      'competitor-intelligence': 'Competitor Intelligence',
+                      'price-suggestions': 'Price Suggestions',
+                    }[activeView]}
                   </h1>
                 </div>
-                {activeView === 'overview' ? (
+                {activeView === 'overview' || activeView === 'scraper-queue' ? (
                   <>
                     <span className="hidden h-5 w-px bg-slate-200 sm:block" />
                     <p className="text-xs text-slate-500">
@@ -290,7 +299,7 @@ export default function Layout({
               </div>
             </div>
 
-            <div className={`hidden items-center gap-2 ${activeView === 'overview' ? 'xl:flex' : ''}`}>
+            <div className={`hidden items-center gap-2 ${activeView === 'overview' || activeView === 'scraper-queue' ? 'xl:flex' : ''}`}>
               <QueueIndicator state={queueState} />
               <button
                 className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"

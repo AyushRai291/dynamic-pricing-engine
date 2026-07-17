@@ -211,6 +211,34 @@ export type ScrapeJobStatusResponse = {
   job: ScrapeJobStatus;
 };
 
+export type ScrapeJobState = 'waiting' | 'active' | 'delayed' | 'completed' | 'failed';
+
+export type RecentScrapeJob = {
+  jobId: string;
+  state: ScrapeJobState;
+  targetId: string | null;
+  productId: string | null;
+  productName: string | null;
+  competitorName: string | null;
+  attemptsMade: number;
+  maxAttempts: number;
+  queuedAt: string | null;
+  processedOn: string | null;
+  finishedOn: string | null;
+  progress: number | null;
+  failureReason: string | null;
+};
+
+export type ScrapeJobsResponse = {
+  items: RecentScrapeJob[];
+  pagination: ProductsResponse['pagination'];
+};
+
+export type RetryScrapeJobResponse = {
+  message: string;
+  job: RecentScrapeJob;
+};
+
 export type CompetitorTargetLatestScrape = {
   price: string;
   isAvailable: boolean;
@@ -233,6 +261,22 @@ export type CompetitorTarget = CompetitorTargetBase & {
 
 export type CompetitorTargetsResponse = {
   items: CompetitorTarget[];
+};
+
+export type GlobalCompetitorTarget = {
+  targetId: string;
+  productId: string;
+  productName: string;
+  productSku: string;
+  competitorName: string;
+  competitorUrl: string;
+  isActive: boolean;
+  latestScrape: CompetitorTargetLatestScrape | null;
+};
+
+export type GlobalCompetitorTargetsResponse = {
+  items: GlobalCompetitorTarget[];
+  pagination: ProductsResponse['pagination'];
 };
 
 export type CreateCompetitorTargetInput = {
@@ -568,6 +612,18 @@ export async function updateProduct(
   return parseResponse<ProductResponse>(response);
 }
 
+export async function getProduct(
+  accessToken: string,
+  productId: string
+): Promise<ProductResponse> {
+  const response = await authenticatedFetch(
+    `/api/products/${encodeURIComponent(productId)}`,
+    accessToken
+  );
+
+  return parseResponse<ProductResponse>(response);
+}
+
 export async function getScraperStatus(accessToken: string): Promise<ScraperStatusResponse> {
   const response = await authenticatedFetch('/api/scraper/status', accessToken);
 
@@ -601,6 +657,57 @@ export async function getScrapeJobStatus(
   );
 
   return parseResponse<ScrapeJobStatusResponse>(response);
+}
+
+export async function getScrapeJobs(
+  accessToken: string,
+  params: { state?: ScrapeJobState; page?: number; limit?: number } = {},
+  signal?: AbortSignal
+): Promise<ScrapeJobsResponse> {
+  const query = new URLSearchParams();
+  if (params.state) query.set('state', params.state);
+  if (params.page) query.set('page', String(params.page));
+  if (params.limit) query.set('limit', String(params.limit));
+  const queryString = query.toString();
+  const response = await authenticatedFetch(
+    `/api/scraper/jobs${queryString ? `?${queryString}` : ''}`,
+    accessToken,
+    { signal }
+  );
+
+  return parseResponse<ScrapeJobsResponse>(response);
+}
+
+export async function retryScrapeJob(
+  accessToken: string,
+  jobId: string
+): Promise<RetryScrapeJobResponse> {
+  const response = await authenticatedFetch(
+    `/api/scraper/jobs/${encodeURIComponent(jobId)}/retry`,
+    accessToken,
+    { method: 'POST' }
+  );
+
+  return parseResponse<RetryScrapeJobResponse>(response);
+}
+
+export async function getGlobalCompetitorTargets(
+  accessToken: string,
+  params: { active?: boolean; page?: number; limit?: number } = {},
+  signal?: AbortSignal
+): Promise<GlobalCompetitorTargetsResponse> {
+  const query = new URLSearchParams();
+  if (params.active !== undefined) query.set('active', String(params.active));
+  if (params.page) query.set('page', String(params.page));
+  if (params.limit) query.set('limit', String(params.limit));
+  const queryString = query.toString();
+  const response = await authenticatedFetch(
+    `/api/competitor-targets${queryString ? `?${queryString}` : ''}`,
+    accessToken,
+    { signal }
+  );
+
+  return parseResponse<GlobalCompetitorTargetsResponse>(response);
 }
 
 export async function getCompetitorTargets(

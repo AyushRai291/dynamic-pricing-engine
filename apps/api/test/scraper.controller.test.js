@@ -5,7 +5,10 @@ process.env.JWT_ACCESS_SECRET ||= 'test-access-secret';
 process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
 
 const {
+  createListScrapeJobsHandler,
+  createRetryScrapeJobHandler,
   createTriggerScrapeHandler,
+  parseScrapeJobsQuery,
   validateScraperUuid,
 } = await import('../src/controllers/scraper.controller.js');
 
@@ -56,6 +59,7 @@ test('targetId trigger enqueues only stored active target values', async () => {
   });
 
   assert.deepEqual(enqueuedPayload, {
+    targetId: TARGET_ID,
     productId: PRODUCT_ID,
     competitorName: 'Stored Store',
     competitorUrl: 'https://stored.example/product',
@@ -63,6 +67,59 @@ test('targetId trigger enqueues only stored active target values', async () => {
   });
   assert.equal(response.statusCode, 202);
   assert.equal(response.body.message, 'Scrape queued');
+});
+
+test('recent job listing validates filters and pagination before calling the queue', async () => {
+  assert.deepEqual(parseScrapeJobsQuery({ state: 'failed', page: '2', limit: '100' }), {
+    state: 'failed',
+    page: 2,
+    limit: 100,
+  });
+  assert.throws(() => parseScrapeJobsQuery({ state: 'paused' }), /Invalid scraper job state/);
+  assert.throws(() => parseScrapeJobsQuery({ limit: '101' }), /between 1 and 100/);
+
+  let receivedQuery;
+  const result = { items: [], pagination: { page: 1, limit: 25, total: 0, totalPages: 0 } };
+  const response = await invokeHandler(createListScrapeJobsHandler({
+    listFn: async (query) => {
+      receivedQuery = query;
+      return result;
+    },
+  }), { query: {} });
+
+  assert.deepEqual(receivedQuery, { state: undefined, page: 1, limit: 25 });
+  assert.deepEqual(response, { statusCode: 200, body: result });
+});
+
+test('failed retry resolves stored target id and submits only current trusted target values', async () => {
+  let retryCall;
+  const response = await invokeHandler(createRetryScrapeJobHandler({
+    getTargetIdFn: async (jobId) => {
+      assert.equal(jobId, 'job-9');
+      return TARGET_ID;
+    },
+    getActiveTargetFn: async (targetId) => ({
+      id: targetId,
+      productId: PRODUCT_ID,
+      competitorName: 'Current Store',
+      competitorUrl: 'https://current.example/product',
+    }),
+    retryFn: async (jobId, payload) => {
+      retryCall = { jobId, payload };
+      return { jobId, state: 'waiting' };
+    },
+  }), { params: { jobId: 'job-9' } });
+
+  assert.deepEqual(retryCall, {
+    jobId: 'job-9',
+    payload: {
+      targetId: TARGET_ID,
+      productId: PRODUCT_ID,
+      competitorName: 'Current Store',
+      competitorUrl: 'https://current.example/product',
+    },
+  });
+  assert.equal(response.statusCode, 202);
 });
 
 test('inactive target cannot be triggered', async () => {

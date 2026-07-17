@@ -26,7 +26,9 @@ import ProductTable from '../components/ProductTable';
 import QueueStatusPanel from '../components/QueueStatusPanel';
 import SalesHistoryDialog from '../components/SalesHistoryDialog';
 import PriceSuggestionsPage from './PriceSuggestionsPage';
+import CompetitorIntelligencePage from './CompetitorIntelligencePage';
 import ProductsPage from './ProductsPage';
+import ScraperQueuePage from './ScraperQueuePage';
 
 type DashboardPageProps = {
   accessToken: string;
@@ -179,6 +181,10 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
   }, [loadProducts]);
 
   useEffect(() => {
+    if (activeView !== 'overview' && activeView !== 'scraper-queue') {
+      return undefined;
+    }
+
     loadQueueStatus();
     const intervalId = window.setInterval(() => {
       loadQueueStatus({ silent: true });
@@ -187,7 +193,7 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [loadQueueStatus]);
+  }, [activeView, loadQueueStatus]);
 
   const filteredProducts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -237,7 +243,7 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
       activeView={activeView}
       onViewChange={setActiveView}
     >
-      {!canManage && activeView !== 'products' ? (
+      {!canManage && (activeView === 'overview' || activeView === 'price-suggestions') ? (
         <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950" role="status">
           Viewer access is read-only. You can inspect products, sales, competitors, queue status, and price suggestions; manager or admin access is required for changes.
         </div>
@@ -328,6 +334,25 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
             setSuggestionsRefreshKey((value) => value + 1);
           }}
           onProductsChanged={loadProducts}
+        />
+      ) : activeView === 'scraper-queue' ? (
+        <ScraperQueuePage
+          accessToken={accessToken}
+          canManage={canManage}
+          status={queueStatus}
+          statusError={queueError}
+          isStatusLoading={isQueueLoading}
+          isStatusRefreshing={isQueueRefreshing}
+          lastRefreshedLabel={lastRefreshedLabel}
+          onRefreshStatus={() => loadQueueStatus()}
+          onUnauthorized={onLogout}
+        />
+      ) : activeView === 'competitor-intelligence' ? (
+        <CompetitorIntelligencePage
+          accessToken={accessToken}
+          canManage={canManage}
+          onOpenProductTargets={setSelectedCompetitorProduct}
+          onUnauthorized={onLogout}
         />
       ) : (
         <PriceSuggestionsPage

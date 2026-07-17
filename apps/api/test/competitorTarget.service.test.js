@@ -7,6 +7,7 @@ process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
 const {
   createCompetitorTarget,
   getActiveCompetitorTarget,
+  listGlobalCompetitorTargets,
   listCompetitorTargets,
   updateCompetitorTarget,
 } = await import('../src/services/competitorTarget.service.js');
@@ -81,6 +82,39 @@ test('target list maps the latest exact configured scrape without changing decim
   assert.deepEqual(items, [scrapedTarget]);
   assert.equal(items[0].latestScrape.price, '12345.67');
   assert.equal(items[0].latestScrape.scrapedAt, '2026-07-18T09:10:11.123Z');
+});
+
+test('global target listing is paginated, filterable, active-product scoped, and exact-match trusted', async () => {
+  const calls = [];
+  const row = {
+    targetId: TARGET_ID,
+    productId: PRODUCT_ID,
+    productName: 'Product',
+    productSku: 'SKU-1',
+    competitorName: 'Store',
+    competitorUrl: 'https://shop.example/p',
+    isActive: true,
+    latestScrape: { price: '123.45', isAvailable: true, scrapedAt: '2026-07-17T00:00:00Z' },
+  };
+  const result = await listGlobalCompetitorTargets(
+    { page: 2, limit: 10, isActive: true },
+    { queryFn: async (sql, params) => {
+      calls.push({ sql, params });
+      return calls.length === 1 ? { rows: [{ total: 11 }] } : { rows: [row] };
+    } }
+  );
+
+  assert.deepEqual(result, {
+    items: [row],
+    pagination: { page: 2, limit: 10, total: 11, totalPages: 2 },
+  });
+  assert.match(calls[0].sql, /p\.is_active = TRUE AND ct\.is_active = \$1/);
+  assert.deepEqual(calls[0].params, [true]);
+  assert.match(calls[1].sql, /cd\.product_id = ct\.product_id/);
+  assert.match(calls[1].sql, /cd\.competitor_name = ct\.competitor_name/);
+  assert.match(calls[1].sql, /cd\.competitor_url = ct\.competitor_url/);
+  assert.match(calls[1].sql, /latest\.price::text/);
+  assert.deepEqual(calls[1].params, [true, 10, 10]);
 });
 
 test('never-scraped and inactive targets remain listable with latestScrape null', async () => {

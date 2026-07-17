@@ -60,6 +60,7 @@ test('one enqueue failure does not prevent remaining targets', async () => {
   assert.equal(calls.length, 2);
   assert.equal(errors.length, 1);
   assert.deepEqual(calls[1].payload, {
+    targetId: TARGET_2.targetId,
     productId: TARGET_2.productId,
     competitorName: TARGET_2.competitorName,
     competitorUrl: TARGET_2.competitorUrl,

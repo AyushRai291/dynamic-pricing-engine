@@ -79,6 +79,75 @@ export async function listCompetitorTargets(productId, { queryFn = query } = {})
   return result.rows;
 }
 
+export async function listGlobalCompetitorTargets(
+  { page, limit, isActive },
+  { queryFn = query } = {}
+) {
+  const filterParams = [];
+  let activeClause = '';
+
+  if (isActive !== undefined) {
+    filterParams.push(isActive);
+    activeClause = ` AND ct.is_active = $${filterParams.length}`;
+  }
+
+  const countResult = await queryFn(
+    `SELECT COUNT(*)::int AS total
+     FROM competitor_targets ct
+     JOIN products p ON p.id = ct.product_id
+     WHERE p.is_active = TRUE${activeClause}`,
+    filterParams
+  );
+  const offset = (page - 1) * limit;
+  const dataParams = [...filterParams, limit, offset];
+  const limitParam = dataParams.length - 1;
+  const offsetParam = dataParams.length;
+  const result = await queryFn(
+    `SELECT
+       ct.id AS "targetId",
+       ct.competitor_name AS "competitorName",
+       ct.competitor_url AS "competitorUrl",
+       ct.is_active AS "isActive",
+       p.id AS "productId",
+       p.name AS "productName",
+       p.sku AS "productSku",
+       CASE
+         WHEN latest.id IS NULL THEN NULL
+         ELSE json_build_object(
+           'price', latest.price::text,
+           'isAvailable', latest.is_available,
+           'scrapedAt', latest.scraped_at
+         )
+       END AS "latestScrape"
+     FROM competitor_targets ct
+     JOIN products p ON p.id = ct.product_id
+     LEFT JOIN LATERAL (
+       SELECT cd.id, cd.price, cd.is_available, cd.scraped_at
+       FROM competitor_data cd
+       WHERE cd.product_id = ct.product_id
+         AND cd.competitor_name = ct.competitor_name
+         AND cd.competitor_url = ct.competitor_url
+       ORDER BY cd.scraped_at DESC, cd.created_at DESC, cd.id DESC
+       LIMIT 1
+     ) latest ON TRUE
+     WHERE p.is_active = TRUE${activeClause}
+     ORDER BY p.name ASC, p.id ASC, ct.created_at ASC, ct.id ASC
+     LIMIT $${limitParam} OFFSET $${offsetParam}`,
+    dataParams
+  );
+  const total = Number(countResult.rows[0]?.total) || 0;
+
+  return {
+    items: result.rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
 export async function createCompetitorTarget(
   productId,
   { competitorName, competitorUrl },

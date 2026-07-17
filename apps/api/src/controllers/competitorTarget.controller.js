@@ -1,6 +1,7 @@
 import { SCRAPER_ALLOW_PRIVATE_URLS } from '../config/env.js';
 import {
   createCompetitorTarget,
+  listGlobalCompetitorTargets,
   listCompetitorTargets,
   updateCompetitorTarget,
 } from '../services/competitorTarget.service.js';
@@ -43,6 +44,48 @@ function parseCompetitorName(value) {
   }
 
   return value.trim();
+}
+
+function parsePositiveInteger(value, fieldName, defaultValue) {
+  if (value === undefined) return defaultValue;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    throw createError(`${fieldName} must be a positive integer`, 400);
+  }
+
+  const parsed = Number(value);
+  if (parsed < 1 || (fieldName === 'limit' && parsed > 100)) {
+    throw createError(fieldName === 'limit'
+      ? 'limit must be between 1 and 100'
+      : 'page must be a positive integer', 400);
+  }
+
+  return parsed;
+}
+
+export function parseGlobalTargetQuery(query = {}) {
+  let isActive;
+
+  if (query.active !== undefined) {
+    if (query.active !== 'true' && query.active !== 'false') {
+      throw createError('active must be true or false', 400);
+    }
+    isActive = query.active === 'true';
+  }
+
+  return {
+    page: parsePositiveInteger(query.page, 'page', 1),
+    limit: parsePositiveInteger(query.limit, 'limit', 20),
+    isActive,
+  };
+}
+
+export function createListGlobalCompetitorTargetsHandler({
+  listFn = listGlobalCompetitorTargets,
+} = {}) {
+  return asyncHandler(async (req, res) => {
+    const result = await listFn(parseGlobalTargetQuery(req.query));
+    res.status(200).json(result);
+  });
 }
 
 export function parseCreateTargetBody(
@@ -128,3 +171,4 @@ export function createUpdateCompetitorTargetHandler({
 export const listProductCompetitorTargets = createListCompetitorTargetsHandler();
 export const createProductCompetitorTarget = createCreateCompetitorTargetHandler();
 export const updateProductCompetitorTarget = createUpdateCompetitorTargetHandler();
+export const listConfiguredCompetitorTargets = createListGlobalCompetitorTargetsHandler();

@@ -8,6 +8,7 @@ import { authRateLimiter, generalApiRateLimiter } from './middleware/rateLimit.m
 import { requestIdMiddleware } from './middleware/requestId.middleware.js';
 import { requestLoggerMiddleware } from './middleware/requestLogger.middleware.js';
 import authRoutes from './routes/auth.routes.js';
+import competitorTargetRoutes from './routes/competitorTarget.routes.js';
 import healthRoutes from './routes/health.routes.js';
 import pricingRoutes from './routes/pricing.routes.js';
 import productRoutes from './routes/product.routes.js';
@@ -24,6 +25,7 @@ app.use(requestLoggerMiddleware);
 app.use('/health', healthRoutes);
 app.use('/api', generalApiRateLimiter);
 app.use('/api/auth', authRateLimiter, authRoutes);
+app.use('/api/competitor-targets', competitorTargetRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/scraper', scraperRoutes);

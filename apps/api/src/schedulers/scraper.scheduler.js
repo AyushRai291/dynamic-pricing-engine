@@ -56,6 +56,7 @@ export async function runScraperSchedulerOnce({
       validateCompetitorUrl(target.competitorUrl);
       const job = await enqueueFn(
         {
+          targetId: target.targetId,
           productId: target.productId,
           competitorName: target.competitorName,
           competitorUrl: target.competitorUrl,

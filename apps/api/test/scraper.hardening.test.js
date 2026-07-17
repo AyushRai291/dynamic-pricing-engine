@@ -221,7 +221,7 @@ test('scraper resource limits reject invalid startup values', async (t) => {
 test('private URL override is disabled in production configuration', async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
-    ['--input-type=module', '-e', "const env = await import('./src/config/env.js'); console.log(env.SCRAPER_ALLOW_PRIVATE_URLS);"],
+    ['--input-type=module', '-e', "const env = await import('./src/config/env.js'); process.stdout.write(String(env.SCRAPER_ALLOW_PRIVATE_URLS));"],
     {
       cwd: apiDirectory,
       env: {
@@ -229,6 +229,7 @@ test('private URL override is disabled in production configuration', async () =>
         NODE_ENV: 'production',
         JWT_ACCESS_SECRET: 'test-access-secret',
         JWT_REFRESH_SECRET: 'test-refresh-secret',
+        CORS_ALLOWED_ORIGINS: 'https://example.com',
         SCRAPER_ALLOW_PRIVATE_URLS: 'true',
       },
     }

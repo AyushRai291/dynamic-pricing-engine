@@ -41,6 +41,36 @@ docker compose --env-file .env.production -f compose.production.yml run --rm mig
 
 The runner intentionally refuses a non-empty database that lacks `schema_migrations`; create a reviewed baseline manually for a legacy database rather than letting deployment guess.
 
+## Create the first admin
+
+Run this once after migrations. The command exits without changing any account if an admin already exists. Supply bootstrap credentials only as temporary shell variables; do not add them to `.env.production`.
+
+For local development:
+
+```sh
+read -r -p "Admin name: " BOOTSTRAP_ADMIN_NAME
+read -r -p "Admin email: " BOOTSTRAP_ADMIN_EMAIL
+read -r -s -p "Admin password: " BOOTSTRAP_ADMIN_PASSWORD; echo
+export BOOTSTRAP_ADMIN_NAME BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
+pnpm auth:bootstrap-admin
+unset BOOTSTRAP_ADMIN_NAME BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
+```
+
+For the production Compose network:
+
+```sh
+read -r -p "Admin name: " BOOTSTRAP_ADMIN_NAME
+read -r -p "Admin email: " BOOTSTRAP_ADMIN_EMAIL
+read -r -s -p "Admin password: " BOOTSTRAP_ADMIN_PASSWORD; echo
+export BOOTSTRAP_ADMIN_NAME BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
+docker compose --env-file .env.production -f compose.production.yml run --rm --no-deps \
+  -e BOOTSTRAP_ADMIN_NAME -e BOOTSTRAP_ADMIN_EMAIL -e BOOTSTRAP_ADMIN_PASSWORD \
+  api node src/scripts/bootstrapAdmin.js
+unset BOOTSTRAP_ADMIN_NAME BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
+```
+
+The password must be 12–72 characters and contain uppercase, lowercase, numeric, and symbol characters. It is never printed or stored outside the normal password hash.
+
 ## Verify health
 
 ```sh

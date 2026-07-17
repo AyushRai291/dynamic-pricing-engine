@@ -1,7 +1,9 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   ?? (import.meta.env.PROD ? '' : 'http://localhost:5000');
 const ACCESS_TOKEN_STORAGE_KEY = 'dpe_access_token';
-const REFRESH_TOKEN_STORAGE_KEY = 'dpe_refresh_token';
+const LEGACY_REFRESH_TOKEN_STORAGE_KEY = 'dpe_refresh_token';
+
+localStorage.removeItem(LEGACY_REFRESH_TOKEN_STORAGE_KEY);
 
 export type UserRole = 'viewer' | 'manager' | 'admin';
 
@@ -17,18 +19,18 @@ export type AuthUser = {
 
 export type AuthSession = {
   accessToken: string | null;
-  refreshToken: string | null;
 };
 
 let authSession: AuthSession = {
   accessToken: localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
-  refreshToken: localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY),
 };
+let authSessionVersion = 0;
 const authSessionListeners = new Set<() => void>();
 let refreshPromise: Promise<string | null> | null = null;
 
 function publishAuthSession(nextSession: AuthSession) {
   authSession = nextSession;
+  authSessionVersion += 1;
   authSessionListeners.forEach((listener) => listener());
 }
 
@@ -41,22 +43,16 @@ export function subscribeAuthSession(listener: () => void) {
   return () => authSessionListeners.delete(listener);
 }
 
-export function saveAuthSession(accessToken: string, refreshToken: string) {
+export function saveAuthSession(accessToken: string) {
   localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
-  localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
-  publishAuthSession({ accessToken, refreshToken });
+  localStorage.removeItem(LEGACY_REFRESH_TOKEN_STORAGE_KEY);
+  publishAuthSession({ accessToken });
 }
 
 export function clearAuthSession() {
   localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-  publishAuthSession({ accessToken: null, refreshToken: null });
-}
-
-function clearRefreshSession(refreshToken: string) {
-  if (authSession.refreshToken === refreshToken) {
-    clearAuthSession();
-  }
+  localStorage.removeItem(LEGACY_REFRESH_TOKEN_STORAGE_KEY);
+  publishAuthSession({ accessToken: null });
 }
 
 function saveRefreshedAccessToken(accessToken: string) {
@@ -77,7 +73,6 @@ export class ApiError extends Error {
 export type AuthResponse = {
   user: AuthUser;
   accessToken: string;
-  refreshToken: string;
 };
 
 export type LoginResponse = AuthResponse;
@@ -516,41 +511,33 @@ async function refreshAccessToken(): Promise<string | null> {
     return refreshPromise;
   }
 
-  const refreshToken = authSession.refreshToken;
-
-  if (!refreshToken) {
-    clearAuthSession();
-    return null;
-  }
+  const sessionVersion = authSessionVersion;
 
   refreshPromise = (async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        credentials: 'include',
       });
 
       if (!response.ok) {
-        clearRefreshSession(refreshToken);
+        clearAuthSession();
         return null;
       }
 
       const data = await response.json().catch(() => null) as RefreshResponse | null;
 
       if (!data || typeof data.accessToken !== 'string' || !data.accessToken) {
-        clearRefreshSession(refreshToken);
+        clearAuthSession();
         return null;
       }
 
-      if (authSession.refreshToken !== refreshToken) {
-        return null;
-      }
+      if (authSessionVersion !== sessionVersion) return null;
 
       saveRefreshedAccessToken(data.accessToken);
       return data.accessToken;
     } catch {
-      clearRefreshSession(refreshToken);
+      clearAuthSession();
       return null;
     }
   })();
@@ -598,6 +585,7 @@ async function authenticatedFetch(
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -614,11 +602,19 @@ export async function register(
 ): Promise<AuthResponse> {
   const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email, password }),
   });
 
   return parseResponse<AuthResponse>(response);
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${API_BASE_URL}/api/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
 }
 
 export async function getCurrentUser(accessToken: string): Promise<MeResponse> {

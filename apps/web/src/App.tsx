@@ -7,6 +7,7 @@ import {
   clearAuthSession,
   getAuthSession,
   getCurrentUser,
+  logout,
   saveAuthSession,
   subscribeAuthSession,
 } from './api/client';
@@ -55,10 +56,11 @@ export default function App() {
 
   function handleAuthenticated(response: AuthResponse) {
     setUser(null);
-    saveAuthSession(response.accessToken, response.refreshToken);
+    saveAuthSession(response.accessToken);
   }
 
   function handleLogout() {
+    void logout().catch(() => {});
     clearAuthSession();
     setUser(null);
   }

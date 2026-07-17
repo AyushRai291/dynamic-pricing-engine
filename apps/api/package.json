@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "auth:bootstrap-admin": "node src/scripts/bootstrapAdmin.js"
   },
   "dependencies": {
     "@google/genai": "^2.11.0",

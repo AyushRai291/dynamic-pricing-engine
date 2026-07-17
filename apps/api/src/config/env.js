@@ -69,7 +69,12 @@ function parseCorsAllowedOrigins(value, { production }) {
     ? configured
     : production
       ? []
-      : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+      : [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
+      ];
 
   if (origins.length === 0) {
     throw new Error('CORS_ALLOWED_ORIGINS is required in production.');

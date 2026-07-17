@@ -197,9 +197,14 @@ test('public registration ignores an injected role and creates a viewer', async 
       return { rowCount: 0, rows: [] };
     }
 
-    insertQuery = sql;
-    insertParams = params;
-    return { rowCount: 1, rows: [viewer] };
+    if (/INSERT INTO users/.test(sql)) {
+      insertQuery = sql;
+      insertParams = params;
+      return { rowCount: 1, rows: [viewer] };
+    }
+
+    assert.match(sql, /INSERT INTO auth_sessions/);
+    return { rowCount: 1, rows: [] };
   }, async () => {
     await withServer(createTestApp({ auth: true }), async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/register`, {
@@ -217,6 +222,8 @@ test('public registration ignores an injected role and creates a viewer', async 
       assert.equal(response.status, 201);
       assert.equal(body.user.role, 'viewer');
       assert.equal(verifyAccessToken(body.accessToken).role, 'viewer');
+      assert.equal('refreshToken' in body, false);
+      assert.match(response.headers.get('set-cookie'), /HttpOnly/i);
     });
   });
 

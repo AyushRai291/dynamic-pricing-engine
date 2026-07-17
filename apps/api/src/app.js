@@ -31,7 +31,7 @@ function corsOrigin(origin, callback) {
 
 app.set('trust proxy', TRUST_PROXY);
 app.use(requestIdMiddleware);
-app.use(cors({ origin: corsOrigin }));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 app.use(requestLoggerMiddleware);
 

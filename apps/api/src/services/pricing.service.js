@@ -29,6 +29,9 @@ const SUGGESTION_SELECT_COLUMNS = `
   ps.suggested_price,
   ps.price_score,
   ps.status,
+  ps.approved_by,
+  ps.approved_at,
+  ps.expires_at,
   ps.feature_vector,
   ps.ai_rationale,
   ps.created_at
@@ -168,7 +171,7 @@ function mapSuggestion(row, product = null) {
     average_price: null,
   };
 
-  return {
+  const suggestion = {
     id: row.id,
     status: row.status,
     product: {
@@ -192,6 +195,92 @@ function mapSuggestion(row, product = null) {
     limitation: metadata.limitation || EXPERIMENTAL_SUGGESTION_LIMITATION,
     aiRationale: parseStoredRationale(row.ai_rationale),
   };
+
+  for (const field of ['approved_by', 'approved_at', 'expires_at']) {
+    if (Object.hasOwn(row, field)) {
+      suggestion[field] = row[field];
+    }
+  }
+
+  return suggestion;
+}
+
+function moneyToCents(value, fieldName) {
+  return Math.round(parseFiniteNumber(value, fieldName) * 100);
+}
+
+function assertPendingSuggestion(row) {
+  if (row.status !== 'pending') {
+    throw createError('Price suggestion is no longer pending', 409);
+  }
+}
+
+function assertSuggestionCanBeApproved(suggestion, product) {
+  const savedCurrentPrice = moneyToCents(
+    suggestion.current_price,
+    'suggestion current_price'
+  );
+  const currentPrice = moneyToCents(product.current_price, 'product current_price');
+
+  if (currentPrice !== savedCurrentPrice) {
+    throw createError('Product price changed after this suggestion was created', 409);
+  }
+
+  const suggestedPrice = moneyToCents(suggestion.suggested_price, 'suggested_price');
+  const costPrice = moneyToCents(product.cost_price, 'cost_price');
+  const minPrice = moneyToCents(product.min_price, 'min_price');
+  const maxPrice = moneyToCents(product.max_price, 'max_price');
+
+  if (suggestedPrice < costPrice || suggestedPrice < minPrice || suggestedPrice > maxPrice) {
+    throw createError('Suggested price no longer passes product price guardrails', 409);
+  }
+}
+
+function mapPriceHistory(row) {
+  return {
+    id: row.id,
+    product_id: row.product_id,
+    old_price: parseFiniteNumber(row.old_price, 'price history old_price'),
+    new_price: parseFiniteNumber(row.new_price, 'price history new_price'),
+    change_reason: row.change_reason,
+    suggestion_id: row.suggestion_id,
+    changed_by: row.changed_by,
+    created_at: row.created_at,
+  };
+}
+
+async function runDecisionTransaction(poolInstance, callback) {
+  const client = await poolInstance.connect();
+
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Preserve the original sanitized workflow error.
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function loadSuggestionForUpdate(id, queryFn) {
+  const result = await queryFn(
+    `SELECT ${SUGGESTION_SELECT_COLUMNS}
+     FROM price_suggestions ps
+     LEFT JOIN products p ON p.id = ps.product_id
+     WHERE ps.id = $1
+     FOR UPDATE OF ps`,
+    [id]
+  );
+
+  return result.rows[0] || null;
 }
 
 function buildRationaleFacts(row) {
@@ -340,6 +429,27 @@ async function loadActiveProductPricingForUpdate(productId, queryFn) {
      FROM products
      WHERE id = $1
        AND is_active = TRUE
+     FOR UPDATE`,
+    [productId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function loadProductPricingForUpdate(productId, queryFn) {
+  const result = await queryFn(
+    `SELECT
+       id,
+       sku,
+       name,
+       current_price,
+       cost_price,
+       min_price,
+       max_price,
+       inventory_count,
+       is_active
+     FROM products
+     WHERE id = $1
      FOR UPDATE`,
     [productId]
   );
@@ -506,6 +616,152 @@ export async function createPendingPriceSuggestion(
   } finally {
     client.release();
   }
+}
+
+export async function approvePriceSuggestion(
+  id,
+  reviewerId,
+  { poolInstance = pool } = {}
+) {
+  return runDecisionTransaction(poolInstance, async (client) => {
+    const queryFn = client.query.bind(client);
+    const lockedSuggestion = await loadSuggestionForUpdate(id, queryFn);
+
+    if (!lockedSuggestion) {
+      throw createError('Price suggestion not found', 404);
+    }
+
+    assertPendingSuggestion(lockedSuggestion);
+
+    const productRow = await loadProductPricingForUpdate(
+      lockedSuggestion.product_id,
+      queryFn
+    );
+
+    if (!productRow) {
+      throw createError('Product not found', 404);
+    }
+
+    if (!productRow.is_active) {
+      throw createError('Product is no longer active', 409);
+    }
+
+    assertSuggestionCanBeApproved(lockedSuggestion, productRow);
+
+    const oldPrice = parseFiniteNumber(productRow.current_price, 'product current_price');
+    const newPrice = parseFiniteNumber(lockedSuggestion.suggested_price, 'suggested_price');
+
+    await client.query(
+      `UPDATE products
+       SET current_price = $2,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [productRow.id, lockedSuggestion.suggested_price]
+    );
+
+    const suggestionResult = await client.query(
+      `UPDATE price_suggestions
+       SET status = 'approved',
+           approved_by = $2,
+           approved_at = NOW()
+       WHERE id = $1
+         AND status = 'pending'
+       RETURNING
+         id,
+         product_id,
+         current_price,
+         suggested_price,
+         price_score,
+         status,
+         approved_by,
+         approved_at,
+         expires_at,
+         feature_vector,
+         ai_rationale,
+         created_at`,
+      [id, reviewerId]
+    );
+
+    if (!suggestionResult.rows[0]) {
+      throw createError('Price suggestion is no longer pending', 409);
+    }
+
+    const historyResult = await client.query(
+      `INSERT INTO price_history (
+         product_id,
+         old_price,
+         new_price,
+         change_reason,
+         suggestion_id,
+         changed_by
+       )
+       VALUES ($1, $2, $3, 'suggestion_approved', $4, $5)
+       RETURNING
+         id,
+         product_id,
+         old_price,
+         new_price,
+         change_reason,
+         suggestion_id,
+         changed_by,
+         created_at`,
+      [productRow.id, productRow.current_price, lockedSuggestion.suggested_price, id, reviewerId]
+    );
+
+    const suggestion = mapSuggestion(
+      { ...lockedSuggestion, ...suggestionResult.rows[0] },
+      productRow
+    );
+
+    return {
+      suggestion,
+      old_price: oldPrice,
+      new_price: newPrice,
+      price_history: mapPriceHistory(historyResult.rows[0]),
+    };
+  });
+}
+
+export async function rejectPriceSuggestion(
+  id,
+  { poolInstance = pool } = {}
+) {
+  return runDecisionTransaction(poolInstance, async (client) => {
+    const lockedSuggestion = await loadSuggestionForUpdate(id, client.query.bind(client));
+
+    if (!lockedSuggestion) {
+      throw createError('Price suggestion not found', 404);
+    }
+
+    assertPendingSuggestion(lockedSuggestion);
+
+    const suggestionResult = await client.query(
+      `UPDATE price_suggestions
+       SET status = 'rejected'
+       WHERE id = $1
+         AND status = 'pending'
+       RETURNING
+         id,
+         product_id,
+         current_price,
+         suggested_price,
+         price_score,
+         status,
+         approved_by,
+         approved_at,
+         expires_at,
+         feature_vector,
+         ai_rationale,
+         created_at`,
+      [id]
+    );
+
+    if (!suggestionResult.rows[0]) {
+      throw createError('Price suggestion is no longer pending', 409);
+    }
+
+    return mapSuggestion({ ...lockedSuggestion, ...suggestionResult.rows[0] });
+  });
 }
 
 export async function listPriceSuggestions(

@@ -7,10 +7,12 @@ process.env.JWT_ACCESS_SECRET ||= 'test-access-secret';
 process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
 
 const {
+  createApproveSuggestionHandler,
   createGenerateSuggestionRationaleHandler,
   createGetSuggestionHandler,
   createListSuggestionsHandler,
   createProductSuggestionHandler,
+  createRejectSuggestionHandler,
   parseSuggestionListQuery,
   validateCreateSuggestionBody,
   validatePricingUuid,
@@ -20,6 +22,7 @@ const { default: pricingRoutes } = await import('../src/routes/pricing.routes.js
 
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 const SUGGESTION_ID = '22222222-2222-4222-8222-222222222222';
+const USER_ID = '33333333-3333-4333-8333-333333333333';
 
 function assertBadRequest(fn, pattern) {
   assert.throws(fn, (error) => {
@@ -186,6 +189,61 @@ test('rationale handler validates input and returns generated or existing contra
   );
 });
 
+test('decision handlers validate empty bodies and approval passes the authenticated reviewer', async () => {
+  const approved = {
+    suggestion: { id: SUGGESTION_ID, status: 'approved' },
+    old_price: 100,
+    new_price: 105,
+    price_history: { suggestion_id: SUGGESTION_ID },
+  };
+  const approveCalls = [];
+  const approveHandler = createApproveSuggestionHandler({
+    approveFn: async (id, reviewerId) => {
+      approveCalls.push({ id, reviewerId });
+      return approved;
+    },
+  });
+  const approveResponse = await invokeHandler(approveHandler, {
+    params: { id: SUGGESTION_ID },
+    body: {},
+    user: { id: USER_ID },
+  });
+
+  assert.deepEqual(approveCalls, [{ id: SUGGESTION_ID, reviewerId: USER_ID }]);
+  assert.deepEqual(approveResponse, { statusCode: 200, body: approved });
+
+  const rejected = { id: SUGGESTION_ID, status: 'rejected' };
+  const rejectCalls = [];
+  const rejectHandler = createRejectSuggestionHandler({
+    rejectFn: async (id) => {
+      rejectCalls.push(id);
+      return rejected;
+    },
+  });
+  const rejectResponse = await invokeHandler(rejectHandler, {
+    params: { id: SUGGESTION_ID },
+    body: undefined,
+    user: { id: USER_ID },
+  });
+
+  assert.deepEqual(rejectCalls, [SUGGESTION_ID]);
+  assert.deepEqual(rejectResponse, {
+    statusCode: 200,
+    body: { suggestion: rejected },
+  });
+
+  for (const handler of [approveHandler, rejectHandler]) {
+    await assert.rejects(
+      invokeHandler(handler, {
+        params: { id: SUGGESTION_ID },
+        body: { reason: 'No schema field exists for this' },
+        user: { id: USER_ID },
+      }),
+      (error) => error.statusCode === 400 && /must not contain fields/.test(error.message)
+    );
+  }
+});
+
 test('suggestion endpoints require JWT authentication', async (t) => {
   const app = express();
   app.use(express.json());
@@ -209,6 +267,16 @@ test('suggestion endpoints require JWT authentication', async (t) => {
     fetch(`http://127.0.0.1:${port}/api/pricing/suggestions?status=pending&limit=10`),
     fetch(`http://127.0.0.1:${port}/api/pricing/suggestions/${SUGGESTION_ID}`),
     fetch(`http://127.0.0.1:${port}/api/pricing/suggestions/${SUGGESTION_ID}/rationale`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    fetch(`http://127.0.0.1:${port}/api/pricing/suggestions/${SUGGESTION_ID}/approve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    fetch(`http://127.0.0.1:${port}/api/pricing/suggestions/${SUGGESTION_ID}/reject`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',

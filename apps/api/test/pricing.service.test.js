@@ -5,15 +5,19 @@ process.env.JWT_ACCESS_SECRET ||= 'test-access-secret';
 process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret';
 
 const {
+  approvePriceSuggestion,
   createPendingPriceSuggestion,
   generatePriceSuggestionRationale,
   getPriceSuggestionById,
   listPriceSuggestions,
+  rejectPriceSuggestion,
   scoreProductPricing,
 } = await import('../src/services/pricing.service.js');
 
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 const SUGGESTION_ID = '22222222-2222-4222-8222-222222222222';
+const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
+const HISTORY_ID = '44444444-4444-4444-8444-444444444444';
 const productRow = {
   id: PRODUCT_ID,
   sku: 'SKU-1',
@@ -413,6 +417,407 @@ test('ML 502 and 503 errors are preserved and roll back without insertion', asyn
   }
 });
 
+function createDecisionSuggestionRow(overrides = {}) {
+  return {
+    id: SUGGESTION_ID,
+    product_id: PRODUCT_ID,
+    product_name: 'Example product',
+    sku: 'SKU-1',
+    current_price: '100.00',
+    suggested_price: '105.00',
+    price_score: '80.00',
+    status: 'pending',
+    approved_by: null,
+    approved_at: null,
+    expires_at: null,
+    feature_vector: {
+      price_score: 80,
+      action: 'increase',
+      model_version: 'bootstrap-xgb-v1',
+      model_source: 'synthetic_rule_based',
+      competitor_snapshot: { count: 0, available_count: 0, average_price: null },
+      raw_candidate: 105,
+      applied_guardrails: [],
+    },
+    ai_rationale: JSON.stringify(persistedRationale),
+    created_at: '2026-07-17T05:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function createDecisionProductRow(overrides = {}) {
+  return {
+    ...productRow,
+    is_active: true,
+    ...overrides,
+  };
+}
+
+test('approval locks both rows and atomically updates price, review data, and one history row', async () => {
+  const calls = [];
+  const reviewedAt = '2026-07-17T07:00:00.000Z';
+  const historyCreatedAt = '2026-07-17T07:00:01.000Z';
+  const { pool, wasReleased } = createMockPool(async (sql, params) => {
+    calls.push({ sql, params });
+
+    if (/FROM price_suggestions ps/.test(sql)) {
+      return { rows: [createDecisionSuggestionRow()] };
+    }
+
+    if (/FROM products/.test(sql)) {
+      return { rows: [createDecisionProductRow()] };
+    }
+
+    if (/UPDATE price_suggestions/.test(sql)) {
+      return {
+        rows: [createDecisionSuggestionRow({
+          status: 'approved',
+          approved_by: REVIEWER_ID,
+          approved_at: reviewedAt,
+        })],
+      };
+    }
+
+    if (/INSERT INTO price_history/.test(sql)) {
+      return {
+        rows: [{
+          id: HISTORY_ID,
+          product_id: PRODUCT_ID,
+          old_price: '100.00',
+          new_price: '105.00',
+          change_reason: 'suggestion_approved',
+          suggestion_id: SUGGESTION_ID,
+          changed_by: REVIEWER_ID,
+          created_at: historyCreatedAt,
+        }],
+      };
+    }
+
+    return { rows: [] };
+  });
+
+  const result = await approvePriceSuggestion(SUGGESTION_ID, REVIEWER_ID, {
+    poolInstance: pool,
+  });
+
+  assert.equal(calls[0].sql, 'BEGIN');
+  assert.match(calls[1].sql, /WHERE ps\.id = \$1[\s\S]*FOR UPDATE OF ps/);
+  assert.deepEqual(calls[1].params, [SUGGESTION_ID]);
+  assert.match(calls[2].sql, /FROM products[\s\S]*WHERE id = \$1[\s\S]*FOR UPDATE/);
+  assert.deepEqual(calls[2].params, [PRODUCT_ID]);
+
+  const productUpdates = calls.filter(({ sql }) => /UPDATE products/.test(sql));
+  assert.equal(productUpdates.length, 1);
+  assert.deepEqual(productUpdates[0].params, [PRODUCT_ID, '105.00']);
+
+  const suggestionUpdates = calls.filter(({ sql }) => /UPDATE price_suggestions/.test(sql));
+  assert.equal(suggestionUpdates.length, 1);
+  assert.deepEqual(suggestionUpdates[0].params, [SUGGESTION_ID, REVIEWER_ID]);
+  assert.match(suggestionUpdates[0].sql, /status = 'approved'/);
+  assert.match(suggestionUpdates[0].sql, /approved_by = \$2/);
+  assert.match(suggestionUpdates[0].sql, /approved_at = NOW\(\)/);
+  assert.match(suggestionUpdates[0].sql, /status = 'pending'/);
+  assert.doesNotMatch(
+    suggestionUpdates[0].sql.split(/WHERE/i)[0],
+    /feature_vector|ai_rationale|suggested_price|current_price|price_score/
+  );
+
+  const historyInserts = calls.filter(({ sql }) => /INSERT INTO price_history/.test(sql));
+  assert.equal(historyInserts.length, 1);
+  assert.deepEqual(historyInserts[0].params, [
+    PRODUCT_ID,
+    '100.00',
+    '105.00',
+    SUGGESTION_ID,
+    REVIEWER_ID,
+  ]);
+  assert.match(historyInserts[0].sql, /'suggestion_approved'/);
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+  assert.equal(wasReleased(), true);
+
+  assert.equal(result.old_price, 100);
+  assert.equal(result.new_price, 105);
+  assert.equal(result.suggestion.status, 'approved');
+  assert.equal(result.suggestion.approved_by, REVIEWER_ID);
+  assert.equal(result.suggestion.approved_at, reviewedAt);
+  assert.deepEqual(result.suggestion.aiRationale, persistedRationale);
+  assert.equal(result.suggestion.action, 'increase');
+  assert.equal(result.suggestion.model_version, 'bootstrap-xgb-v1');
+  assert.deepEqual(result.price_history, {
+    id: HISTORY_ID,
+    product_id: PRODUCT_ID,
+    old_price: 100,
+    new_price: 105,
+    change_reason: 'suggestion_approved',
+    suggestion_id: SUGGESTION_ID,
+    changed_by: REVIEWER_ID,
+    created_at: historyCreatedAt,
+  });
+});
+
+test('rejection only transitions the locked suggestion and preserves saved decision data', async () => {
+  const calls = [];
+  const { pool, wasReleased } = createMockPool(async (sql, params) => {
+    calls.push({ sql, params });
+
+    if (/FROM price_suggestions ps/.test(sql)) {
+      return { rows: [createDecisionSuggestionRow()] };
+    }
+
+    if (/UPDATE price_suggestions/.test(sql)) {
+      return {
+        rows: [createDecisionSuggestionRow({
+          status: 'rejected',
+        })],
+      };
+    }
+
+    return { rows: [] };
+  });
+
+  const suggestion = await rejectPriceSuggestion(SUGGESTION_ID, {
+    poolInstance: pool,
+  });
+
+  assert.equal(calls[0].sql, 'BEGIN');
+  assert.match(calls[1].sql, /FOR UPDATE OF ps/);
+  const suggestionUpdates = calls.filter(({ sql }) => /UPDATE price_suggestions/.test(sql));
+  assert.equal(suggestionUpdates.length, 1);
+  assert.deepEqual(suggestionUpdates[0].params, [SUGGESTION_ID]);
+  assert.doesNotMatch(suggestionUpdates[0].sql.split(/WHERE/i)[0], /approved_by|approved_at/);
+  assert.equal(calls.some(({ sql }) => /UPDATE products|INSERT INTO price_history/.test(sql)), false);
+  assert.equal(calls.at(-1).sql, 'COMMIT');
+  assert.equal(wasReleased(), true);
+  assert.equal(suggestion.status, 'rejected');
+  assert.equal(suggestion.approved_by, null);
+  assert.equal(suggestion.approved_at, null);
+  assert.equal(suggestion.current_price, 100);
+  assert.equal(suggestion.suggested_price, 105);
+  assert.deepEqual(suggestion.aiRationale, persistedRationale);
+});
+
+test('approval conflicts and missing records roll back before any write', async (t) => {
+  const cases = [
+    {
+      name: 'missing suggestion',
+      suggestion: null,
+      expectedStatus: 404,
+      expectedMessage: /suggestion not found/i,
+    },
+    {
+      name: 'already decided suggestion',
+      suggestion: createDecisionSuggestionRow({ status: 'rejected' }),
+      expectedStatus: 409,
+      expectedMessage: /no longer pending/i,
+    },
+    {
+      name: 'missing product',
+      suggestion: createDecisionSuggestionRow(),
+      product: null,
+      expectedStatus: 404,
+      expectedMessage: /product not found/i,
+    },
+    {
+      name: 'inactive product',
+      suggestion: createDecisionSuggestionRow(),
+      product: createDecisionProductRow({ is_active: false }),
+      expectedStatus: 409,
+      expectedMessage: /no longer active/i,
+    },
+    {
+      name: 'stale product price',
+      suggestion: createDecisionSuggestionRow(),
+      product: createDecisionProductRow({ current_price: '101.00' }),
+      expectedStatus: 409,
+      expectedMessage: /price changed/i,
+    },
+    {
+      name: 'cost guardrail changed',
+      suggestion: createDecisionSuggestionRow({ suggested_price: '90.00' }),
+      product: createDecisionProductRow({ cost_price: '95.00' }),
+      expectedStatus: 409,
+      expectedMessage: /guardrails/i,
+    },
+    {
+      name: 'minimum guardrail changed',
+      suggestion: createDecisionSuggestionRow({ suggested_price: '90.00' }),
+      product: createDecisionProductRow({ min_price: '95.00' }),
+      expectedStatus: 409,
+      expectedMessage: /guardrails/i,
+    },
+    {
+      name: 'maximum guardrail changed',
+      suggestion: createDecisionSuggestionRow(),
+      product: createDecisionProductRow({ max_price: '102.00' }),
+      expectedStatus: 409,
+      expectedMessage: /guardrails/i,
+    },
+  ];
+
+  for (const testCase of cases) {
+    await t.test(testCase.name, async () => {
+      const calls = [];
+      const { pool, wasReleased } = createMockPool(async (sql, params) => {
+        calls.push({ sql, params });
+
+        if (/FROM price_suggestions ps/.test(sql)) {
+          return { rows: testCase.suggestion ? [testCase.suggestion] : [] };
+        }
+
+        if (/FROM products/.test(sql)) {
+          return { rows: testCase.product ? [testCase.product] : [] };
+        }
+
+        return { rows: [] };
+      });
+
+      await assert.rejects(
+        approvePriceSuggestion(SUGGESTION_ID, REVIEWER_ID, { poolInstance: pool }),
+        (error) => (
+          error.statusCode === testCase.expectedStatus
+          && testCase.expectedMessage.test(error.message)
+        )
+      );
+
+      assert.equal(
+        calls.some(({ sql }) => /^\s*(UPDATE|INSERT|DELETE)/i.test(sql)),
+        false
+      );
+      assert.equal(calls.at(-1).sql, 'ROLLBACK');
+      assert.equal(wasReleased(), true);
+    });
+  }
+});
+
+test('an unexpected failure after the product update rolls back without history or commit', async () => {
+  const calls = [];
+  const databaseError = new Error('database write failed');
+  const { pool, wasReleased } = createMockPool(async (sql, params) => {
+    calls.push({ sql, params });
+
+    if (/FROM price_suggestions ps/.test(sql)) {
+      return { rows: [createDecisionSuggestionRow()] };
+    }
+
+    if (/FROM products/.test(sql)) {
+      return { rows: [createDecisionProductRow()] };
+    }
+
+    if (/UPDATE price_suggestions/.test(sql)) {
+      throw databaseError;
+    }
+
+    return { rows: [] };
+  });
+
+  await assert.rejects(
+    approvePriceSuggestion(SUGGESTION_ID, REVIEWER_ID, { poolInstance: pool }),
+    (error) => error === databaseError
+  );
+
+  assert.equal(calls.filter(({ sql }) => /UPDATE products/.test(sql)).length, 1);
+  assert.equal(calls.some(({ sql }) => /INSERT INTO price_history/.test(sql)), false);
+  assert.equal(calls.some(({ sql }) => sql === 'COMMIT'), false);
+  assert.equal(calls.at(-1).sql, 'ROLLBACK');
+  assert.equal(wasReleased(), true);
+});
+
+test('two simultaneous approvals serialize so only one price change and history insert succeed', async () => {
+  let suggestionStatus = 'pending';
+  let productPrice = '100.00';
+  let lockHeld = false;
+  const lockWaiters = [];
+  let productUpdateCount = 0;
+  let historyInsertCount = 0;
+
+  function releaseLock(client) {
+    if (!client.hasSuggestionLock) {
+      return;
+    }
+
+    client.hasSuggestionLock = false;
+    lockHeld = false;
+    lockWaiters.shift()?.();
+  }
+
+  const pool = {
+    async connect() {
+      const client = {
+        hasSuggestionLock: false,
+        release() {},
+        async query(sql, params) {
+          if (/FROM price_suggestions ps/.test(sql)) {
+            if (lockHeld) {
+              await new Promise((resolve) => lockWaiters.push(resolve));
+            }
+
+            lockHeld = true;
+            client.hasSuggestionLock = true;
+            return { rows: [createDecisionSuggestionRow({ status: suggestionStatus })] };
+          }
+
+          if (/FROM products/.test(sql)) {
+            return { rows: [createDecisionProductRow({ current_price: productPrice })] };
+          }
+
+          if (/UPDATE products/.test(sql)) {
+            productUpdateCount += 1;
+            productPrice = params[1];
+            return { rows: [] };
+          }
+
+          if (/UPDATE price_suggestions/.test(sql)) {
+            suggestionStatus = 'approved';
+            return {
+              rows: [createDecisionSuggestionRow({
+                status: suggestionStatus,
+                approved_by: params[1],
+                approved_at: '2026-07-17T07:00:00.000Z',
+              })],
+            };
+          }
+
+          if (/INSERT INTO price_history/.test(sql)) {
+            historyInsertCount += 1;
+            return {
+              rows: [{
+                id: HISTORY_ID,
+                product_id: PRODUCT_ID,
+                old_price: '100.00',
+                new_price: '105.00',
+                change_reason: 'suggestion_approved',
+                suggestion_id: SUGGESTION_ID,
+                changed_by: REVIEWER_ID,
+                created_at: '2026-07-17T07:00:01.000Z',
+              }],
+            };
+          }
+
+          if (sql === 'COMMIT' || sql === 'ROLLBACK') {
+            releaseLock(client);
+          }
+
+          return { rows: [] };
+        },
+      };
+
+      return client;
+    },
+  };
+
+  const decisions = await Promise.allSettled([
+    approvePriceSuggestion(SUGGESTION_ID, REVIEWER_ID, { poolInstance: pool }),
+    approvePriceSuggestion(SUGGESTION_ID, REVIEWER_ID, { poolInstance: pool }),
+  ]);
+
+  assert.equal(decisions.filter(({ status }) => status === 'fulfilled').length, 1);
+  const rejected = decisions.find(({ status }) => status === 'rejected');
+  assert.equal(rejected.reason.statusCode, 409);
+  assert.equal(productPrice, '105.00');
+  assert.equal(productUpdateCount, 1);
+  assert.equal(historyInsertCount, 1);
+});
+
 test('suggestion reads are parameterized, map decimals, and return 404 when missing', async () => {
   const featureVector = {
     price_score: 80.1234,
@@ -432,6 +837,9 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
     suggested_price: '104.99',
     price_score: '80.00',
     status: 'pending',
+    approved_by: null,
+    approved_at: null,
+    expires_at: null,
     feature_vector: featureVector,
     ai_rationale: null,
     created_at: '2026-07-17T05:00:00.000Z',
@@ -453,6 +861,8 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
   assert.equal(listResult.items[0].suggested_price, 104.99);
   assert.equal(listResult.items[0].price_score, 80.1234);
   assert.equal(listResult.items[0].aiRationale, null);
+  assert.equal(listResult.items[0].approved_by, null);
+  assert.equal(listResult.items[0].approved_at, null);
 
   const detailCalls = [];
   const detail = await getPriceSuggestionById(SUGGESTION_ID, {
@@ -461,12 +871,18 @@ test('suggestion reads are parameterized, map decimals, and return 404 when miss
       return {
         rows: [{
           ...row,
+          status: 'approved',
+          approved_by: REVIEWER_ID,
+          approved_at: '2026-07-17T07:00:00.000Z',
           ai_rationale: JSON.stringify(persistedRationale),
         }],
       };
     },
   });
   assert.equal(detail.id, SUGGESTION_ID);
+  assert.equal(detail.status, 'approved');
+  assert.equal(detail.approved_by, REVIEWER_ID);
+  assert.equal(detail.approved_at, '2026-07-17T07:00:00.000Z');
   assert.deepEqual(detail.aiRationale, persistedRationale);
   assert.deepEqual(detailCalls[0].params, [SUGGESTION_ID]);
   assert.match(detailCalls[0].sql, /ps\.id = \$1/);

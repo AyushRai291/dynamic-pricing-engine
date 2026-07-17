@@ -1,9 +1,11 @@
 import { getMlHealth } from '../services/ml.service.js';
 import {
+  approvePriceSuggestion,
   createPendingPriceSuggestion,
   generatePriceSuggestionRationale,
   getPriceSuggestionById,
   listPriceSuggestions,
+  rejectPriceSuggestion,
   scoreProductPricing,
 } from '../services/pricing.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -128,7 +130,29 @@ export function createGenerateSuggestionRationaleHandler({
   });
 }
 
+export function createApproveSuggestionHandler({ approveFn = approvePriceSuggestion } = {}) {
+  return asyncHandler(async (req, res) => {
+    const suggestionId = validatePricingUuid(req.params.id, 'suggestion');
+    validateCreateSuggestionBody(req.body);
+    const result = await approveFn(suggestionId, req.user.id);
+
+    res.status(200).json(result);
+  });
+}
+
+export function createRejectSuggestionHandler({ rejectFn = rejectPriceSuggestion } = {}) {
+  return asyncHandler(async (req, res) => {
+    const suggestionId = validatePricingUuid(req.params.id, 'suggestion');
+    validateCreateSuggestionBody(req.body);
+    const suggestion = await rejectFn(suggestionId);
+
+    res.status(200).json({ suggestion });
+  });
+}
+
 export const createProductSuggestion = createProductSuggestionHandler();
 export const listSuggestions = createListSuggestionsHandler();
 export const getSuggestion = createGetSuggestionHandler();
 export const generateSuggestionRationale = createGenerateSuggestionRationaleHandler();
+export const approveSuggestion = createApproveSuggestionHandler();
+export const rejectSuggestion = createRejectSuggestionHandler();

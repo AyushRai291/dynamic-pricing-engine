@@ -26,6 +26,7 @@ import ProductTable from '../components/ProductTable';
 import QueueStatusPanel from '../components/QueueStatusPanel';
 import SalesHistoryDialog from '../components/SalesHistoryDialog';
 import PriceSuggestionsPage from './PriceSuggestionsPage';
+import ProductsPage from './ProductsPage';
 
 type DashboardPageProps = {
   accessToken: string;
@@ -236,7 +237,7 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
       activeView={activeView}
       onViewChange={setActiveView}
     >
-      {!canManage ? (
+      {!canManage && activeView !== 'products' ? (
         <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950" role="status">
           Viewer access is read-only. You can inspect products, sales, competitors, queue status, and price suggestions; manager or admin access is required for changes.
         </div>
@@ -291,6 +292,7 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
           onCategoryChange={handleCategoryChange}
           page={page}
           onPageChange={setPage}
+          onRetry={loadProducts}
           onManageCompetitors={setSelectedCompetitorProduct}
           onViewSales={setSelectedSalesProduct}
           accessToken={accessToken}
@@ -301,28 +303,32 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
           }}
         />
           </div>
-
-          <CompetitorTargetsDialog
-            product={selectedCompetitorProduct}
-            isOpen={Boolean(selectedCompetitorProduct)}
-            accessToken={accessToken}
-            canManage={canManage}
-            queueAvailable={queueAvailable}
-            isQueueLoading={isQueueLoading}
-            onClose={() => setSelectedCompetitorProduct(null)}
-            onUnauthorized={onLogout}
-            onRefreshQueue={refreshQueueSilently}
-          />
-
-          <SalesHistoryDialog
-            product={selectedSalesProduct}
-            isOpen={Boolean(selectedSalesProduct)}
-            accessToken={accessToken}
-            canManage={canManage}
-            onClose={() => setSelectedSalesProduct(null)}
-            onUnauthorized={onLogout}
-          />
         </>
+      ) : activeView === 'products' ? (
+        <ProductsPage
+          products={filteredProducts}
+          allLoadedCount={products.length}
+          pagination={pagination}
+          isLoading={isProductsLoading}
+          error={productsError}
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          categoryFilter={categoryFilter}
+          categories={knownCategories}
+          onCategoryChange={handleCategoryChange}
+          page={page}
+          onPageChange={setPage}
+          onRetry={loadProducts}
+          onManageCompetitors={setSelectedCompetitorProduct}
+          onViewSales={setSelectedSalesProduct}
+          accessToken={accessToken}
+          canManage={canManage}
+          onUnauthorized={onLogout}
+          onSuggestionGenerated={() => {
+            setSuggestionsRefreshKey((value) => value + 1);
+          }}
+          onProductsChanged={loadProducts}
+        />
       ) : (
         <PriceSuggestionsPage
           accessToken={accessToken}
@@ -332,6 +338,27 @@ export default function DashboardPage({ accessToken, user, onLogout }: Dashboard
           onProductsChanged={loadProducts}
         />
       )}
+
+      <CompetitorTargetsDialog
+        product={selectedCompetitorProduct}
+        isOpen={Boolean(selectedCompetitorProduct)}
+        accessToken={accessToken}
+        canManage={canManage}
+        queueAvailable={queueAvailable}
+        isQueueLoading={isQueueLoading}
+        onClose={() => setSelectedCompetitorProduct(null)}
+        onUnauthorized={onLogout}
+        onRefreshQueue={refreshQueueSilently}
+      />
+
+      <SalesHistoryDialog
+        product={selectedSalesProduct}
+        isOpen={Boolean(selectedSalesProduct)}
+        accessToken={accessToken}
+        canManage={canManage}
+        onClose={() => setSelectedSalesProduct(null)}
+        onUnauthorized={onLogout}
+      />
     </Layout>
   );
 }

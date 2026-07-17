@@ -115,6 +115,25 @@ export type ProductsResponse = {
   };
 };
 
+export type CreateProductInput = {
+  name: string;
+  sku: string;
+  category: string | null;
+  current_price: number;
+  cost_price: number;
+  min_price: number;
+  max_price: number;
+  inventory_count: number;
+};
+
+export type UpdateProductInput = Omit<CreateProductInput, 'sku'> & {
+  is_active: boolean;
+};
+
+export type ProductResponse = {
+  product: Product;
+};
+
 export type QueueStats = {
   name: string;
   available: boolean;
@@ -516,6 +535,37 @@ export async function getProducts(
   const response = await authenticatedFetch(path, accessToken);
 
   return parseResponse<ProductsResponse>(response);
+}
+
+export async function createProduct(
+  accessToken: string,
+  input: CreateProductInput
+): Promise<ProductResponse> {
+  const response = await authenticatedFetch('/api/products', accessToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  return parseResponse<ProductResponse>(response);
+}
+
+export async function updateProduct(
+  accessToken: string,
+  productId: string,
+  input: UpdateProductInput
+): Promise<ProductResponse> {
+  const response = await authenticatedFetch(
+    `/api/products/${encodeURIComponent(productId)}`,
+    accessToken,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }
+  );
+
+  return parseResponse<ProductResponse>(response);
 }
 
 export async function getScraperStatus(accessToken: string): Promise<ScraperStatusResponse> {

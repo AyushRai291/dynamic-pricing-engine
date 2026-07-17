@@ -18,7 +18,7 @@ import { ReactNode, useState } from 'react';
 import { AuthUser } from '../api/client';
 
 type QueueIndicatorState = 'checking' | 'connected' | 'disconnected';
-export type WorkspaceView = 'overview' | 'price-suggestions';
+export type WorkspaceView = 'overview' | 'products' | 'price-suggestions';
 
 type LayoutProps = {
   children: ReactNode;
@@ -36,7 +36,7 @@ type LayoutProps = {
 
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard, view: 'overview' as const },
-  { label: 'Products', icon: Boxes },
+  { label: 'Products', icon: Boxes, view: 'products' as const },
   { label: 'Scraper Queue', icon: TimerReset },
   { label: 'Price Suggestions', icon: Sparkles, view: 'price-suggestions' as const },
 ];
@@ -248,10 +248,18 @@ export default function Layout({
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    {activeView === 'overview' ? 'Overview' : 'Review workspace'}
+                    {activeView === 'overview'
+                      ? 'Overview'
+                      : activeView === 'products'
+                        ? 'Product workspace'
+                        : 'Review workspace'}
                   </p>
                   <h1 className="truncate text-base font-bold text-slate-950 sm:text-lg">
-                    {activeView === 'overview' ? 'Dashboard' : 'Price Suggestions'}
+                    {activeView === 'overview'
+                      ? 'Dashboard'
+                      : activeView === 'products'
+                        ? 'Products'
+                        : 'Price Suggestions'}
                   </h1>
                 </div>
                 {activeView === 'overview' ? (

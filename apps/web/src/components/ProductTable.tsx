@@ -5,6 +5,7 @@ import {
   ChevronRight,
   History,
   Loader2,
+  Pencil,
   Radar,
   Search,
   Sparkles,
@@ -19,7 +20,7 @@ import {
   createPriceSuggestion,
 } from '../api/client';
 
-type ProductTableProps = {
+export type ProductTableProps = {
   products: Product[];
   allLoadedCount: number;
   pagination: ProductsResponse['pagination'] | null;
@@ -32,8 +33,10 @@ type ProductTableProps = {
   onCategoryChange: (value: string) => void;
   page: number;
   onPageChange: (page: number) => void;
+  onRetry: () => void;
   onManageCompetitors: (product: Product) => void;
   onViewSales: (product: Product) => void;
+  onEditProduct?: (product: Product) => void;
   accessToken: string;
   canManage: boolean;
   onUnauthorized: () => void;
@@ -106,6 +109,75 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+function ProductActions({
+  product,
+  canManage,
+  generatingProductId,
+  onGenerateSuggestion,
+  onEditProduct,
+  onViewSales,
+  onManageCompetitors,
+}: {
+  product: Product;
+  canManage: boolean;
+  generatingProductId: string | null;
+  onGenerateSuggestion: (product: Product) => void;
+  onEditProduct?: (product: Product) => void;
+  onViewSales: (product: Product) => void;
+  onManageCompetitors: (product: Product) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {canManage && onEditProduct ? (
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          type="button"
+          onClick={() => onEditProduct(product)}
+          aria-label={`Edit ${product.name}`}
+        >
+          <Pencil className="h-4 w-4" />
+          Edit
+        </button>
+      ) : null}
+      {canManage ? (
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+          type="button"
+          onClick={() => onGenerateSuggestion(product)}
+          disabled={Boolean(generatingProductId) || !product.is_active}
+          aria-label={`Generate price suggestion for ${product.name}`}
+          title={!product.is_active ? 'Only active products can receive suggestions.' : undefined}
+        >
+          {generatingProductId === product.id ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
+          {generatingProductId === product.id ? 'Generating' : 'Generate suggestion'}
+        </button>
+      ) : null}
+      <button
+        className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        type="button"
+        onClick={() => onViewSales(product)}
+        aria-label={`View sales history for ${product.name}`}
+      >
+        <History className="h-4 w-4" />
+        Sales history
+      </button>
+      <button
+        className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        type="button"
+        onClick={() => onManageCompetitors(product)}
+        aria-label={`${canManage ? 'Manage' : 'View'} competitors for ${product.name}`}
+      >
+        <Radar className="h-4 w-4" />
+        Competitors
+      </button>
+    </div>
+  );
+}
+
 export default function ProductTable({
   products,
   allLoadedCount,
@@ -119,8 +191,10 @@ export default function ProductTable({
   onCategoryChange,
   page,
   onPageChange,
+  onRetry,
   onManageCompetitors,
   onViewSales,
+  onEditProduct,
   accessToken,
   canManage,
   onUnauthorized,
@@ -181,8 +255,15 @@ export default function ProductTable({
 
   if (error) {
     return (
-      <section className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800 shadow-sm">
-        {error}
+      <section className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800 shadow-sm" role="alert">
+        <p className="font-semibold">{error}</p>
+        <button
+          className="mt-4 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
+          type="button"
+          onClick={onRetry}
+        >
+          Retry
+        </button>
       </section>
     );
   }
@@ -207,16 +288,19 @@ export default function ProductTable({
           <label className="sr-only" htmlFor="table-product-search">
             Search products
           </label>
-          <div className="relative sm:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
-              id="table-product-search"
-              type="search"
-              placeholder="Filter loaded products"
-              value={searchValue}
-              onChange={(event) => onSearchChange(event.target.value)}
-            />
+          <div className="sm:w-72">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                id="table-product-search"
+                type="search"
+                placeholder="Filter this loaded page"
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+              />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Search filters only the current API page.</p>
           </div>
 
           <label className="sr-only" htmlFor="category-filter">
@@ -281,7 +365,52 @@ export default function ProductTable({
       ) : null}
 
       {hasProducts ? (
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-slate-100 lg:hidden">
+          {products.map((product) => (
+            <article className="space-y-4 px-5 py-5" key={product.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate font-semibold text-slate-950">{product.name}</h3>
+                  <p className="mt-1 text-xs text-slate-500">SKU {product.sku}</p>
+                </div>
+                <StatusBadge active={product.is_active} />
+              </div>
+
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-xs font-semibold text-slate-500">Category</dt>
+                  <dd className="mt-1 text-slate-800">{product.category || 'Uncategorized'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-slate-500">Inventory</dt>
+                  <dd className="mt-1 text-slate-800">{product.inventory_count}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-slate-500">Current price</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{formatMoney(product.current_price)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-slate-500">Cost / margin</dt>
+                  <dd className="mt-1 text-slate-800">{formatMoney(product.cost_price)} · {formatMargin(product)}</dd>
+                </div>
+              </dl>
+
+              <ProductActions
+                product={product}
+                canManage={canManage}
+                generatingProductId={generatingProductId}
+                onGenerateSuggestion={(item) => void handleGenerateSuggestion(item)}
+                onEditProduct={onEditProduct}
+                onViewSales={onViewSales}
+                onManageCompetitors={onManageCompetitors}
+              />
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {hasProducts ? (
+        <div className="hidden overflow-x-auto lg:block">
           <table className="min-w-[1480px] divide-y divide-slate-200 text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr>
@@ -322,43 +451,15 @@ export default function ProductTable({
                     <StatusBadge active={product.is_active} />
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {canManage ? (
-                        <button
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
-                          type="button"
-                          onClick={() => void handleGenerateSuggestion(product)}
-                          disabled={Boolean(generatingProductId) || !product.is_active}
-                          aria-label={`Generate price suggestion for ${product.name}`}
-                          title={!product.is_active ? 'Only active products can receive suggestions.' : undefined}
-                        >
-                          {generatingProductId === product.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Sparkles className="h-4 w-4" />
-                          )}
-                          {generatingProductId === product.id ? 'Generating' : 'Generate suggestion'}
-                        </button>
-                      ) : null}
-                      <button
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        type="button"
-                        onClick={() => onViewSales(product)}
-                        aria-label={`View sales history for ${product.name}`}
-                      >
-                        <History className="h-4 w-4" />
-                        Sales history
-                      </button>
-                      <button
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        type="button"
-                        onClick={() => onManageCompetitors(product)}
-                        aria-label={`Manage competitors for ${product.name}`}
-                      >
-                        <Radar className="h-4 w-4" />
-                        Competitors
-                      </button>
-                    </div>
+                    <ProductActions
+                      product={product}
+                      canManage={canManage}
+                      generatingProductId={generatingProductId}
+                      onGenerateSuggestion={(item) => void handleGenerateSuggestion(item)}
+                      onEditProduct={onEditProduct}
+                      onViewSales={onViewSales}
+                      onManageCompetitors={onManageCompetitors}
+                    />
                   </td>
                 </tr>
               ))}

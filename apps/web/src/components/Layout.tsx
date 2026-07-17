@@ -16,6 +16,7 @@ import {
 import { ReactNode, useState } from 'react';
 
 type QueueIndicatorState = 'checking' | 'connected' | 'disconnected';
+export type WorkspaceView = 'overview' | 'price-suggestions';
 
 type LayoutProps = {
   children: ReactNode;
@@ -26,17 +27,19 @@ type LayoutProps = {
   lastRefreshedLabel: string;
   onRefreshQueue: () => void;
   isRefreshingQueue: boolean;
+  activeView: WorkspaceView;
+  onViewChange: (view: WorkspaceView) => void;
 };
 
 const navItems = [
-  { label: 'Overview', icon: LayoutDashboard, active: true },
-  { label: 'Products', icon: Boxes, active: false },
-  { label: 'Scraper Queue', icon: TimerReset, active: false },
+  { label: 'Overview', icon: LayoutDashboard, view: 'overview' as const },
+  { label: 'Products', icon: Boxes },
+  { label: 'Scraper Queue', icon: TimerReset },
+  { label: 'Price Suggestions', icon: Sparkles, view: 'price-suggestions' as const },
 ];
 
 const futureItems = [
   { label: 'Competitor Intelligence', icon: Radar },
-  { label: 'Price Suggestions', icon: Sparkles },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'Settings', icon: Settings },
 ];
@@ -69,10 +72,14 @@ function Sidebar({
   collapsed,
   isMobile = false,
   onClose,
+  activeView,
+  onViewChange,
 }: {
   collapsed: boolean;
   isMobile?: boolean;
   onClose?: () => void;
+  activeView: WorkspaceView;
+  onViewChange: (view: WorkspaceView) => void;
 }) {
   return (
     <aside
@@ -107,17 +114,22 @@ function Sidebar({
       <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Main navigation">
         {navItems.map((item) => {
           const Icon = item.icon;
+          const isActive = item.view === activeView;
 
           return (
             <button
               className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
-                item.active
+                isActive
                   ? 'bg-white text-slate-950 shadow-sm'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
               type="button"
               key={item.label}
-              aria-current={item.active ? 'page' : undefined}
+              aria-current={isActive ? 'page' : undefined}
+              onClick={item.view ? () => {
+                onViewChange(item.view);
+                onClose?.();
+              } : undefined}
             >
               <Icon className="h-5 w-5 shrink-0" />
               {!collapsed || isMobile ? <span className="truncate">{item.label}</span> : null}
@@ -171,6 +183,8 @@ export default function Layout({
   lastRefreshedLabel,
   onRefreshQueue,
   isRefreshingQueue,
+  activeView,
+  onViewChange,
 }: LayoutProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -178,7 +192,11 @@ export default function Layout({
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex">
-        <Sidebar collapsed={isSidebarCollapsed} />
+        <Sidebar
+          collapsed={isSidebarCollapsed}
+          activeView={activeView}
+          onViewChange={onViewChange}
+        />
       </div>
 
       {isMobileNavOpen ? (
@@ -190,7 +208,13 @@ export default function Layout({
             onClick={() => setIsMobileNavOpen(false)}
           />
           <div className="relative h-full">
-            <Sidebar collapsed={false} isMobile onClose={() => setIsMobileNavOpen(false)} />
+            <Sidebar
+              collapsed={false}
+              isMobile
+              onClose={() => setIsMobileNavOpen(false)}
+              activeView={activeView}
+              onViewChange={onViewChange}
+            />
           </div>
         </div>
       ) : null}
@@ -220,20 +244,24 @@ export default function Layout({
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Overview
+                    {activeView === 'overview' ? 'Overview' : 'Review workspace'}
                   </p>
                   <h1 className="truncate text-base font-bold text-slate-950 sm:text-lg">
-                    Dashboard
+                    {activeView === 'overview' ? 'Dashboard' : 'Price Suggestions'}
                   </h1>
                 </div>
-                <span className="hidden h-5 w-px bg-slate-200 sm:block" />
-                <p className="text-xs text-slate-500">
-                  Last queue refresh: {lastRefreshedLabel}
-                </p>
+                {activeView === 'overview' ? (
+                  <>
+                    <span className="hidden h-5 w-px bg-slate-200 sm:block" />
+                    <p className="text-xs text-slate-500">
+                      Last queue refresh: {lastRefreshedLabel}
+                    </p>
+                  </>
+                ) : null}
               </div>
             </div>
 
-            <div className="hidden w-full max-w-sm items-center md:flex">
+            <div className={`hidden w-full max-w-sm items-center ${activeView === 'overview' ? 'md:flex' : ''}`}>
               <label className="sr-only" htmlFor="product-search">
                 Search products
               </label>
@@ -250,7 +278,7 @@ export default function Layout({
               </div>
             </div>
 
-            <div className="hidden items-center gap-2 xl:flex">
+            <div className={`hidden items-center gap-2 ${activeView === 'overview' ? 'xl:flex' : ''}`}>
               <QueueIndicator state={queueState} />
               <button
                 className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
@@ -272,7 +300,7 @@ export default function Layout({
             </button>
           </div>
 
-          <div className="border-t border-slate-100 px-4 py-3 md:hidden">
+          <div className={`border-t border-slate-100 px-4 py-3 md:hidden ${activeView === 'overview' ? '' : 'hidden'}`}>
             <label className="sr-only" htmlFor="mobile-product-search">
               Search products
             </label>
@@ -290,7 +318,7 @@ export default function Layout({
           </div>
         </header>
 
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>
   );

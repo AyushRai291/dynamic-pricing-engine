@@ -1,6 +1,23 @@
-import { ChevronLeft, ChevronRight, History, Radar, Search } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  History,
+  Loader2,
+  Radar,
+  Search,
+  Sparkles,
+  X,
+} from 'lucide-react';
+import { useState } from 'react';
 
-import { Product, ProductsResponse } from '../api/client';
+import {
+  ApiError,
+  Product,
+  ProductsResponse,
+  createPriceSuggestion,
+} from '../api/client';
 
 type ProductTableProps = {
   products: Product[];
@@ -17,6 +34,14 @@ type ProductTableProps = {
   onPageChange: (page: number) => void;
   onManageCompetitors: (product: Product) => void;
   onViewSales: (product: Product) => void;
+  accessToken: string;
+  onUnauthorized: () => void;
+  onSuggestionGenerated: () => void;
+};
+
+type GenerationNotice = {
+  tone: 'success' | 'error';
+  message: string;
 };
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
@@ -95,7 +120,59 @@ export default function ProductTable({
   onPageChange,
   onManageCompetitors,
   onViewSales,
+  accessToken,
+  onUnauthorized,
+  onSuggestionGenerated,
 }: ProductTableProps) {
+  const [generatingProductId, setGeneratingProductId] = useState<string | null>(null);
+  const [generationNotice, setGenerationNotice] = useState<GenerationNotice | null>(null);
+
+  async function handleGenerateSuggestion(product: Product) {
+    if (generatingProductId) {
+      return;
+    }
+
+    setGeneratingProductId(product.id);
+    setGenerationNotice(null);
+
+    try {
+      await createPriceSuggestion(accessToken, product.id);
+      setGenerationNotice({
+        tone: 'success',
+        message: `A pending experimental suggestion was created for ${product.name}.`,
+      });
+      onSuggestionGenerated();
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      if (error instanceof ApiError && error.statusCode === 409) {
+        setGenerationNotice({
+          tone: 'error',
+          message: `${product.name} already has a pending suggestion. Open Price Suggestions to review it.`,
+        });
+        return;
+      }
+
+      if (error instanceof ApiError && error.statusCode === 503) {
+        setGenerationNotice({
+          tone: 'error',
+          message: 'The pricing model is currently unavailable. Try again after the ML service recovers.',
+        });
+        return;
+      }
+
+      setGenerationNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to generate a price suggestion.',
+      });
+    } finally {
+      setGeneratingProductId(null);
+    }
+  }
+
   if (isLoading) {
     return <TableSkeleton />;
   }
@@ -159,6 +236,34 @@ export default function ProductTable({
         </div>
       </div>
 
+      {generationNotice ? (
+        <div
+          className={`flex items-start justify-between gap-3 border-b px-5 py-3 text-sm ${
+            generationNotice.tone === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+          }`}
+          role={generationNotice.tone === 'success' ? 'status' : 'alert'}
+        >
+          <div className="flex gap-2">
+            {generationNotice.tone === 'success' ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
+            <span>{generationNotice.message}</span>
+          </div>
+          <button
+            className="rounded-md p-1 transition hover:bg-white/60 focus:outline-none focus:ring-2 focus:ring-current"
+            type="button"
+            aria-label="Dismiss suggestion generation message"
+            onClick={() => setGenerationNotice(null)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
       {!hasAnyLoadedProducts ? (
         <div className="px-5 py-12 text-center">
           <p className="text-sm font-semibold text-slate-800">No products available</p>
@@ -175,7 +280,7 @@ export default function ProductTable({
 
       {hasProducts ? (
         <div className="overflow-x-auto">
-          <table className="min-w-[1240px] divide-y divide-slate-200 text-sm">
+          <table className="min-w-[1480px] divide-y divide-slate-200 text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Product name</th>
@@ -216,6 +321,21 @@ export default function ProductTable({
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        type="button"
+                        onClick={() => void handleGenerateSuggestion(product)}
+                        disabled={Boolean(generatingProductId) || !product.is_active}
+                        aria-label={`Generate price suggestion for ${product.name}`}
+                        title={!product.is_active ? 'Only active products can receive suggestions.' : undefined}
+                      >
+                        {generatingProductId === product.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        {generatingProductId === product.id ? 'Generating' : 'Generate suggestion'}
+                      </button>
                       <button
                         className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         type="button"

@@ -20,10 +20,11 @@ import {
   getScraperStatus,
 } from '../api/client';
 import CompetitorTargetsDialog from '../components/CompetitorTargetsDialog';
-import Layout from '../components/Layout';
+import Layout, { WorkspaceView } from '../components/Layout';
 import ProductTable from '../components/ProductTable';
 import QueueStatusPanel from '../components/QueueStatusPanel';
 import SalesHistoryDialog from '../components/SalesHistoryDialog';
+import PriceSuggestionsPage from './PriceSuggestionsPage';
 
 type DashboardPageProps = {
   accessToken: string;
@@ -82,6 +83,8 @@ function StatCard({
 }
 
 export default function DashboardPage({ accessToken, onLogout }: DashboardPageProps) {
+  const [activeView, setActiveView] = useState<WorkspaceView>('overview');
+  const [suggestionsRefreshKey, setSuggestionsRefreshKey] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<ProductsResponse['pagination'] | null>(null);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
@@ -226,8 +229,12 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
       lastRefreshedLabel={lastRefreshedLabel}
       onRefreshQueue={() => loadQueueStatus()}
       isRefreshingQueue={isQueueRefreshing}
+      activeView={activeView}
+      onViewChange={setActiveView}
     >
-      <div className="space-y-6">
+      {activeView === 'overview' ? (
+        <>
+          <div className="space-y-6">
         <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-sm font-semibold text-indigo-700">PricePilot AI</p>
@@ -276,27 +283,41 @@ export default function DashboardPage({ accessToken, onLogout }: DashboardPagePr
           onPageChange={setPage}
           onManageCompetitors={setSelectedCompetitorProduct}
           onViewSales={setSelectedSalesProduct}
+          accessToken={accessToken}
+          onUnauthorized={onLogout}
+          onSuggestionGenerated={() => {
+            setSuggestionsRefreshKey((value) => value + 1);
+          }}
         />
-      </div>
+          </div>
 
-      <CompetitorTargetsDialog
-        product={selectedCompetitorProduct}
-        isOpen={Boolean(selectedCompetitorProduct)}
-        accessToken={accessToken}
-        queueAvailable={queueAvailable}
-        isQueueLoading={isQueueLoading}
-        onClose={() => setSelectedCompetitorProduct(null)}
-        onUnauthorized={onLogout}
-        onRefreshQueue={refreshQueueSilently}
-      />
+          <CompetitorTargetsDialog
+            product={selectedCompetitorProduct}
+            isOpen={Boolean(selectedCompetitorProduct)}
+            accessToken={accessToken}
+            queueAvailable={queueAvailable}
+            isQueueLoading={isQueueLoading}
+            onClose={() => setSelectedCompetitorProduct(null)}
+            onUnauthorized={onLogout}
+            onRefreshQueue={refreshQueueSilently}
+          />
 
-      <SalesHistoryDialog
-        product={selectedSalesProduct}
-        isOpen={Boolean(selectedSalesProduct)}
-        accessToken={accessToken}
-        onClose={() => setSelectedSalesProduct(null)}
-        onUnauthorized={onLogout}
-      />
+          <SalesHistoryDialog
+            product={selectedSalesProduct}
+            isOpen={Boolean(selectedSalesProduct)}
+            accessToken={accessToken}
+            onClose={() => setSelectedSalesProduct(null)}
+            onUnauthorized={onLogout}
+          />
+        </>
+      ) : (
+        <PriceSuggestionsPage
+          accessToken={accessToken}
+          refreshKey={suggestionsRefreshKey}
+          onUnauthorized={onLogout}
+          onProductsChanged={loadProducts}
+        />
+      )}
     </Layout>
   );
 }

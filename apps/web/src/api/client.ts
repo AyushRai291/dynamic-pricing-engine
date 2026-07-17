@@ -205,6 +205,86 @@ export type BulkProductSalesResponse = {
   upsertedCount: number;
 };
 
+export type PriceSuggestionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+
+export type PriceSuggestionRationale = {
+  schemaVersion: string;
+  provider: string;
+  model: string;
+  summary: string;
+  keyFactors: string[];
+  risks: string[];
+  guardrailExplanation: string;
+  limitation: string;
+  promptTokenCount: number;
+  outputTokenCount: number;
+  totalTokenCount: number;
+  generatedAt: string;
+};
+
+export type PriceSuggestion = {
+  id: string;
+  status: PriceSuggestionStatus;
+  product: {
+    id: string;
+    name: string;
+    sku: string;
+  };
+  current_price: number;
+  suggested_price: number;
+  percentage_change: number;
+  price_score: number | null;
+  action: 'increase' | 'decrease' | 'hold' | null;
+  model_version: string | null;
+  model_source: string | null;
+  competitor_snapshot: {
+    count: number;
+    available_count: number;
+    average_price: number | null;
+  };
+  raw_candidate: number;
+  applied_guardrails: string[];
+  created_at: string;
+  limitation: string;
+  aiRationale: PriceSuggestionRationale | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  expires_at?: string | null;
+};
+
+export type PriceSuggestionsResponse = {
+  items: PriceSuggestion[];
+  limit: number;
+};
+
+export type PriceSuggestionResponse = {
+  suggestion: PriceSuggestion;
+};
+
+export type PriceSuggestionRationaleResponse = {
+  generated: boolean;
+  suggestionId: string;
+  rationale: PriceSuggestionRationale;
+};
+
+export type PriceHistoryAudit = {
+  id: string;
+  product_id: string;
+  old_price: number;
+  new_price: number;
+  change_reason: string;
+  suggestion_id: string;
+  changed_by: string;
+  created_at: string;
+};
+
+export type ApprovePriceSuggestionResponse = {
+  suggestion: PriceSuggestion;
+  old_price: number;
+  new_price: number;
+  price_history: PriceHistoryAudit;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => null) as unknown;
 
@@ -414,4 +494,95 @@ export async function bulkUpsertProductSales(
   );
 
   return parseResponse<BulkProductSalesResponse>(response);
+}
+
+export async function createPriceSuggestion(
+  accessToken: string,
+  productId: string
+): Promise<PriceSuggestionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/pricing/products/${encodeURIComponent(productId)}/suggestions`,
+    {
+      method: 'POST',
+      headers: authHeaders(accessToken),
+    }
+  );
+
+  return parseResponse<PriceSuggestionResponse>(response);
+}
+
+export async function getPriceSuggestions(
+  accessToken: string,
+  status: Exclude<PriceSuggestionStatus, 'expired'>,
+  limit = 20,
+  signal?: AbortSignal
+): Promise<PriceSuggestionsResponse> {
+  const query = new URLSearchParams({ status, limit: String(limit) });
+  const response = await fetch(`${API_BASE_URL}/api/pricing/suggestions?${query.toString()}`, {
+    headers: authHeaders(accessToken),
+    signal,
+  });
+
+  return parseResponse<PriceSuggestionsResponse>(response);
+}
+
+export async function getPriceSuggestion(
+  accessToken: string,
+  suggestionId: string,
+  signal?: AbortSignal
+): Promise<PriceSuggestionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}`,
+    {
+      headers: authHeaders(accessToken),
+      signal,
+    }
+  );
+
+  return parseResponse<PriceSuggestionResponse>(response);
+}
+
+export async function generatePriceSuggestionRationale(
+  accessToken: string,
+  suggestionId: string
+): Promise<PriceSuggestionRationaleResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/rationale`,
+    {
+      method: 'POST',
+      headers: authHeaders(accessToken),
+    }
+  );
+
+  return parseResponse<PriceSuggestionRationaleResponse>(response);
+}
+
+export async function approvePriceSuggestion(
+  accessToken: string,
+  suggestionId: string
+): Promise<ApprovePriceSuggestionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/approve`,
+    {
+      method: 'POST',
+      headers: authHeaders(accessToken),
+    }
+  );
+
+  return parseResponse<ApprovePriceSuggestionResponse>(response);
+}
+
+export async function rejectPriceSuggestion(
+  accessToken: string,
+  suggestionId: string
+): Promise<PriceSuggestionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/pricing/suggestions/${encodeURIComponent(suggestionId)}/reject`,
+    {
+      method: 'POST',
+      headers: authHeaders(accessToken),
+    }
+  );
+
+  return parseResponse<PriceSuggestionResponse>(response);
 }
